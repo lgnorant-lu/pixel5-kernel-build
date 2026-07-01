@@ -1,0 +1,73 @@
+name: build_kernel
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free Disk Space
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: true
+          android: false
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: true
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y repo git wget
+
+      - name: Sync kernel source
+        run: |
+          mkdir android-kernel && cd android-kernel
+          repo init -u https://android.googlesource.com/kernel/manifest -b android-msm-redbull-4.19-android13-qpr3
+          repo sync -c --no-tags -j$(nproc)
+
+      - name: Modify SUBLEVEL
+        run: |
+          cd android-kernel/private/msm-google
+          sed -i 's/SUBLEVEL = .*/SUBLEVEL = 278/' Makefile
+          grep SUBLEVEL Makefile
+
+      - name: Build kernel
+        run: |
+          cd android-kernel
+          LTO=thin ./private/msm-google/build_redbull-gki.sh
+
+      - name: Setup AnyKernel3
+        run: |
+          cd android-kernel
+          git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git
+          sed -i 's/do.devicecheck=1/do.devicecheck=0/g' AnyKernel3/anykernel.sh
+          sed -i 's!block=/dev/block/platform/omap/omap_hsmmc.0/by-name/boot;!block=auto;!g' AnyKernel3/anykernel.sh
+          sed -i 's/is_slot_device=0;/is_slot_device=auto;/g' AnyKernel3/anykernel.sh
+          cp out/android-msm-pixel-4.19/dist/Image.lz4-dtb AnyKernel3/
+          cd AnyKernel3
+          zip -r9 ../redfin-custom-kernel.zip ./*
+
+      - name: Upload AnyKernel3
+        uses: actions/upload-artifact@v4
+        with:
+          name: redfin-custom-kernel
+          path: android-kernel/redfin-custom-kernel.zip
+
+      - name: Upload Image.lz4-dtb
+        uses: actions/upload-artifact@v4
+        with:
+          name: Image.lz4-dtb
+          path: android-kernel/out/android-msm-pixel-4.19/dist/Image.lz4-dtb
+
+      - name: Upload boot.img
+        uses: actions/upload-artifact@v4
+        with:
+          name: boot.img
+          path: android-kernel/out/android-msm-pixel-4.19/dist/boot.img
