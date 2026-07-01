@@ -29,7 +29,7 @@ jobs:
       - name: Sync kernel source
         run: |
           mkdir android-kernel && cd android-kernel
-          repo init -u https://android.googlesource.com/kernel/manifest -b android-msm-redbull-4.19-android13-qpr3
+          repo init -u https://android.googlesource.com/kernel/manifest -b android-msm-redbull-4.19-android14-qpr3
           repo sync -c --no-tags -j$(nproc)
 
       - name: Modify SUBLEVEL
