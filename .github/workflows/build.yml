@@ -1,8 +1,12 @@
-name: build_kernel
+name: build_kernel_ksu_susfs
 on:
   workflow_dispatch:
   push:
     branches: [main]
+
+env:
+  KERNEL_BRANCH: android-msm-redbull-4.19-android14-qpr1
+  SUBLEVEL: "278"
 
 jobs:
   build:
@@ -24,47 +28,216 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update -y
-          sudo apt-get install -y repo git wget
+          sudo apt-get install -y repo git wget curl zip cpio bc bison build-essential flex libncurses-dev libssl-dev
 
       - name: Sync kernel source
         run: |
           mkdir android-kernel && cd android-kernel
-          repo init -u https://android.googlesource.com/kernel/manifest -b android-msm-redbull-4.19-android14-qpr3
+          repo init -u https://android.googlesource.com/kernel/manifest -b ${{ env.KERNEL_BRANCH }}
           repo sync -c --no-tags -j$(nproc)
 
       - name: Modify SUBLEVEL
         run: |
           cd android-kernel/private/msm-google
-          sed -i 's/SUBLEVEL = .*/SUBLEVEL = 278/' Makefile
+          sed -i 's/SUBLEVEL = .*/SUBLEVEL = ${{ env.SUBLEVEL }}/' Makefile
           grep SUBLEVEL Makefile
+
+      - name: Setup KernelSU-Next (legacy/non-GKI)
+        run: |
+          cd android-kernel/private/msm-google
+          curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s legacy
+          echo "=== KernelSU-Next setup complete ==="
+          ls -la drivers/kernelsu/
+          ls -la KernelSU-Next/kernel/ | head -20
+
+      - name: Disable kprobe in KernelSU-Next (force manual hook)
+        run: |
+          cd android-kernel/private/msm-google/KernelSU-Next/kernel
+          # Replace all #ifdef CONFIG_KPROBES with disabled version
+          find . -type f \( -name '*.c' -o -name '*.h' \) -exec sed -i 's/#ifdef CONFIG_KPROBES/#if defined(CONFIG_KPROBES) \&\& 0/g' {} +
+          echo "=== kprobe disabled ==="
+          grep -r "CONFIG_KPROBES" . | head -10
+
+      - name: Clone SUSFS patches
+        run: |
+          cd android-kernel
+          git clone https://gitlab.com/simonpunk/susfs4ksu.git -b kernel-4.19 susfs4ksu
+          echo "=== SUSFS files ==="
+          find susfs4ksu/kernel_patches/ -type f
+
+      - name: Copy SUSFS source files
+        run: |
+          cd android-kernel
+          KERNEL_ROOT=private/msm-google
+          cp susfs4ksu/kernel_patches/fs/* $KERNEL_ROOT/fs/
+          cp susfs4ksu/kernel_patches/include/linux/* $KERNEL_ROOT/include/linux/
+          echo "=== SUSFS files copied ==="
+          ls -la $KERNEL_ROOT/fs/susfs.c $KERNEL_ROOT/include/linux/susfs.h
+
+      - name: Apply SUSFS KSU patch
+        run: |
+          cd android-kernel/private/msm-google/KernelSU-Next
+          cp ../susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch .
+          patch -p1 < 10_enable_susfs_for_ksu.patch || echo "Some hunks failed (expected), continuing..."
+
+      - name: Apply SUSFS kernel patch
+        run: |
+          cd android-kernel/private/msm-google
+          cp ../susfs4ksu/kernel_patches/50_add_susfs_in_kernel-4.19.patch .
+          patch -p1 < 50_add_susfs_in_kernel-4.19.patch || echo "Some hunks failed (expected), continuing..."
+
+      - name: Apply manual hooks (exec.c)
+        run: |
+          cd android-kernel/private/msm-google
+          cat > /tmp/apply_hooks.sh << 'HOOKEOF'
+          #!/bin/bash
+          set -e
+          KSU_ROOT=android-kernel/private/msm-google
+          
+          # === fs/exec.c ===
+          # Add extern declaration before do_execveat_common
+          sed -i '/^static int do_execveat_common/i #ifdef CONFIG_KSU\nextern int ksu_handle_execveat(int *fd, struct filename **filename_ptr, void *argv, void *envp, int *flags);\n#endif' $KSU_ROOT/fs/exec.c
+          
+          # Insert hook call at start of do_execveat_common body
+          # Find the function and insert after the opening brace
+          python3 -c "
+          import re
+          with open('$KSU_ROOT/fs/exec.c', 'r') as f:
+              content = f.read()
+          # Insert ksu hook right after the opening brace of do_execveat_common
+          content = re.sub(
+              r'(static int do_execveat_common\(int fd, struct filename \*filename,\s*\n.*?\)\s*\{)',
+              r'\1\n#ifdef CONFIG_KSU\n\tksu_handle_execveat(&fd, &filename, &argv, &envp, &flags);\n#endif',
+              content,
+              count=1,
+              flags=re.DOTALL
+          )
+          with open('$KSU_ROOT/fs/exec.c', 'w') as f:
+              f.write(content)
+          "
+          
+          # === fs/open.c ===
+          # Add extern before do_faccessat / SYSCALL_DEFINE3(faccessat
+          sed -i '/^SYSCALL_DEFINE3(faccessat/i #ifdef CONFIG_KSU\nextern int ksu_handle_faccessat(int *dfd, const char __user **filename_user, int *mode, int *flags);\n#endif' $KSU_ROOT/fs/open.c
+          # Insert hook after lookup_flags declaration
+          sed -i '/unsigned int lookup_flags = LOOKUP_FOLLOW;/a #ifdef CONFIG_KSU\n\tksu_handle_faccessat(\&dfd, \&filename, \&mode, NULL);\n#endif' $KSU_ROOT/fs/open.c
+          
+          # === fs/read_write.c ===
+          # Add extern before vfs_read
+          sed -i '/^ssize_t vfs_read/i #ifdef CONFIG_KSU\nextern bool ksu_vfs_read_hook __read_mostly;\nextern int ksu_handle_vfs_read(struct file **file_ptr, char __user **buf_ptr, size_t *count_ptr, loff_t **pos);\n#endif' $KSU_ROOT/fs/read_write.c
+          # Insert hook at start of vfs_read body
+          python3 -c "
+          import re
+          with open('$KSU_ROOT/fs/read_write.c', 'r') as f:
+              content = f.read()
+          content = re.sub(
+              r'(ssize_t vfs_read\(struct file \*file, char __user \*buf, size_t count, loff_t \*pos\)\s*\{)',
+              r'\1\n#ifdef CONFIG_KSU\n\tif (unlikely(ksu_vfs_read_hook))\n\t\tksu_handle_vfs_read(\&file, \&buf, \&count, \&pos);\n#endif',
+              content,
+              count=1
+          )
+          with open('$KSU_ROOT/fs/read_write.c', 'w') as f:
+              f.write(content)
+          "
+          
+          # === fs/stat.c ===
+          # Add extern before vfs_statx
+          sed -i '/^int vfs_statx/i #ifdef CONFIG_KSU\nextern int ksu_handle_stat(int *dfd, const char __user **filename_user, int *flags);\n#endif' $KSU_ROOT/fs/stat.c
+          # Insert hook after lookup_flags
+          sed -i '/unsigned int lookup_flags = LOOKUP_FOLLOW | LOOKUP_AUTOMOUNT;/a #ifdef CONFIG_KSU\n\tksu_handle_stat(\&dfd, \&filename, \&flags);\n#endif' $KSU_ROOT/fs/stat.c
+          
+          # === kernel/reboot.c ===
+          # Add extern before SYSCALL_DEFINE4(reboot
+          sed -i '/^SYSCALL_DEFINE4(reboot/i #ifdef CONFIG_KSU\nextern int ksu_handle_sys_reboot(int magic1, int magic2, unsigned int cmd, void __user **arg);\n#endif' $KSU_ROOT/kernel/reboot.c
+          # Insert hook after buffer declaration
+          sed -i '/char buffer\[256\];/a #ifdef CONFIG_KSU\n\tksu_handle_sys_reboot(magic1, magic2, cmd, \&arg);\n#endif' $KSU_ROOT/kernel/reboot.c
+          
+          echo "=== Manual hooks applied ==="
+          HOOKEOF
+          chmod +x /tmp/apply_hooks.sh
+          bash /tmp/apply_hooks.sh
+
+      - name: Add KSU + SUSFS config fragment
+        run: |
+          cd android-kernel/private/msm-google
+          
+          # Create a config fragment that will be appended
+          cat > ksu_susfs.fragment << 'EOF'
+          CONFIG_KSU=y
+          CONFIG_KSU_MANUAL_HOOK=y
+          CONFIG_KSU_SUSFS=y
+          CONFIG_KSU_SUSFS_SUS_PATH=y
+          CONFIG_KSU_SUSFS_SUS_MOUNT=y
+          CONFIG_KSU_SUSFS_SUS_KSTAT=y
+          CONFIG_KSU_SUSFS_TRY_UMOUNT=y
+          CONFIG_KSU_SUSFS_SPOOF_UNAME=y
+          CONFIG_KSU_SUSFS_ENABLE_LOG=y
+          CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y
+          CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y
+          CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
+          CONFIG_KSU_SUSFS_SUS_MAP=y
+          EOF
+          
+          # Merge fragment into the build config
+          # build_redbull-gki.sh uses arch/arm64/configs/vendor/redbull_GKI.config
+          CONFIG_FILE="arch/arm64/configs/vendor/redbull_GKI.config"
+          if [ -f "$CONFIG_FILE" ]; then
+            echo "" >> "$CONFIG_FILE"
+            cat ksu_susfs.fragment >> "$CONFIG_FILE"
+            echo "=== Config merged into $CONFIG_FILE ==="
+            tail -20 "$CONFIG_FILE"
+          else
+            echo "WARNING: $CONFIG_FILE not found, searching for defconfig..."
+            find arch/arm64/configs -name "*redbull*" -o -name "*redfin*" | head -10
+            # Try to find the main config
+            find . -name "build_redbull-gki.sh" -exec cat {} \; | grep -i "config\|defconfig" | head -10
+          fi
 
       - name: Build kernel
         run: |
           cd android-kernel
           LTO=thin ./private/msm-google/build_redbull-gki.sh
 
+      - name: Verify build output
+        run: |
+          echo "=== Build output ==="
+          ls -la android-kernel/out/android-msm-pixel-4.19/dist/ 2>/dev/null || echo "dist not found, checking out/"
+          find android-kernel/out/ -name "Image.lz4-dtb" 2>/dev/null
+          find android-kernel/out/ -name "*.ko" 2>/dev/null | head -10
+          find android-kernel/out/ -name "boot.img" 2>/dev/null
+
       - name: Setup AnyKernel3
         run: |
           cd android-kernel
           git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git
+          
+          # Configure AnyKernel3 for Pixel 5
           sed -i 's/do.devicecheck=1/do.devicecheck=0/g' AnyKernel3/anykernel.sh
           sed -i 's!block=/dev/block/platform/omap/omap_hsmmc.0/by-name/boot;!block=auto;!g' AnyKernel3/anykernel.sh
           sed -i 's/is_slot_device=0;/is_slot_device=auto;/g' AnyKernel3/anykernel.sh
+          
+          # Copy kernel image
           cp out/android-msm-pixel-4.19/dist/Image.lz4-dtb AnyKernel3/
+          
+          # Copy kernel modules
+          mkdir -p AnyKernel3/modules
+          find out/android-msm-pixel-4.19/dist/ -name "*.ko" -exec cp {} AnyKernel3/modules/ \;
+          
+          # List modules
+          echo "=== Modules to install ==="
+          ls -la AnyKernel3/modules/ || echo "No modules found"
+          
           cd AnyKernel3
-          zip -r9 ../redfin-custom-kernel.zip ./*
+          zip -r9 ../redfin-ksu-susfs-kernel.zip ./*
+          
+          echo "=== AnyKernel3 zip created ==="
+          ls -la ../redfin-ksu-susfs-kernel.zip
 
-      - name: Upload AnyKernel3
+      - name: Upload AnyKernel3 zip
         uses: actions/upload-artifact@v4
         with:
-          name: redfin-custom-kernel
-          path: android-kernel/redfin-custom-kernel.zip
-
-      - name: Upload Image.lz4-dtb
-        uses: actions/upload-artifact@v4
-        with:
-          name: Image.lz4-dtb
-          path: android-kernel/out/android-msm-pixel-4.19/dist/Image.lz4-dtb
+          name: redfin-ksu-susfs-kernel
+          path: android-kernel/redfin-ksu-susfs-kernel.zip
 
       - name: Upload boot.img
         uses: actions/upload-artifact@v4
@@ -83,3 +256,10 @@ jobs:
         with:
           name: dtbo.img
           path: android-kernel/out/android-msm-pixel-4.19/dist/dtbo.img
+
+      - name: Upload kernel modules
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-modules
+          path: android-kernel/out/android-msm-pixel-4.19/dist/*.ko
+          if-no-files-found: warn
