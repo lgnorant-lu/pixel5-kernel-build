@@ -76,14 +76,28 @@ jobs:
 
       - name: Apply SUSFS KSU patch
         run: |
+          echo "=== PWD: $(pwd) ==="
+          echo "=== Finding susfs4ksu ==="
+          find android-kernel -name "10_enable_susfs_for_ksu.patch" 2>/dev/null
+          echo "=== Finding KernelSU-Next ==="
+          find android-kernel -maxdepth 4 -type d -name "KernelSU-Next" 2>/dev/null
+          echo "=== susfs4ksu tree ==="
+          find android-kernel/susfs4ksu/kernel_patches -type f 2>/dev/null
+          
           cd android-kernel/private/msm-google/KernelSU-Next
-          cp ../../susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch .
+          cp ../../susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch . 2>/dev/null || {
+            echo "Trying absolute path..."
+            cp /home/runner/work/pixel5-kernel-build/pixel5-kernel-build/android-kernel/susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch .
+          }
           patch -p1 --no-backup-if-mismatch < 10_enable_susfs_for_ksu.patch; true
 
       - name: Apply SUSFS kernel patch
         run: |
           cd android-kernel/private/msm-google
-          cp ../susfs4ksu/kernel_patches/50_add_susfs_in_kernel-4.19.patch .
+          cp ../susfs4ksu/kernel_patches/50_add_susfs_in_kernel-4.19.patch . 2>/dev/null || {
+            echo "Trying absolute path..."
+            cp /home/runner/work/pixel5-kernel-build/pixel5-kernel-build/android-kernel/susfs4ksu/kernel_patches/50_add_susfs_in_kernel-4.19.patch .
+          }
           patch -p1 --no-backup-if-mismatch < 50_add_susfs_in_kernel-4.19.patch; true
 
       - name: Apply manual hooks (exec.c)
