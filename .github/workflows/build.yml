@@ -75,19 +75,21 @@ jobs:
           ls -la $KERNEL_ROOT/fs/susfs.c $KERNEL_ROOT/include/linux/susfs.h
 
       - name: Apply SUSFS KSU patch
+        shell: bash
         run: |
           cd android-kernel/private/msm-google/KernelSU-Next
           KSU_ROOT=/home/runner/work/pixel5-kernel-build/pixel5-kernel-build/android-kernel
           cp $KSU_ROOT/susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch .
-          patch -p1 --batch --no-backup-if-mismatch < 10_enable_susfs_for_ksu.patch; true
+          patch -p1 --batch --no-backup-if-mismatch < 10_enable_susfs_for_ksu.patch || true
           echo "=== KSU SUSFS patch applied (some hunks may fail, expected) ==="
 
       - name: Apply SUSFS kernel patch
+        shell: bash
         run: |
           cd android-kernel/private/msm-google
           KSU_ROOT=/home/runner/work/pixel5-kernel-build/pixel5-kernel-build/android-kernel
           cp $KSU_ROOT/susfs4ksu/kernel_patches/50_add_susfs_in_kernel-4.19.patch .
-          patch -p1 --batch --no-backup-if-mismatch < 50_add_susfs_in_kernel-4.19.patch; true
+          patch -p1 --batch --no-backup-if-mismatch < 50_add_susfs_in_kernel-4.19.patch || true
           echo "=== Kernel SUSFS patch applied (some hunks may fail, expected) ==="
 
       - name: Apply manual hooks (exec.c)
