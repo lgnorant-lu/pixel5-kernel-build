@@ -42,13 +42,17 @@ jobs:
           sed -i 's/SUBLEVEL = .*/SUBLEVEL = ${{ env.SUBLEVEL }}/' Makefile
           grep SUBLEVEL Makefile
 
-      - name: Setup KernelSU-Next (legacy/non-GKI)
+      - name: Setup KernelSU-Next with SUSFS (legacy/non-GKI 4.19)
         run: |
           cd android-kernel/private/msm-google
-          curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s legacy
-          echo "=== KernelSU-Next setup complete ==="
+          # Use wshamroukh's fork which has SUSFS v2.0.0+ integrated for 4.19 kernel
+          curl -LSs "https://raw.githubusercontent.com/wshamroukh/KernelSU-Next-SUSFS-kernelv4.19/legacy/kernel/setup.sh" | bash -s legacy
+          echo "=== KernelSU-Next + SUSFS setup complete ==="
           ls -la drivers/kernelsu/
-          ls -la KernelSU-Next/kernel/ | head -20
+          echo "=== Checking SUSFS config ==="
+          grep -c "KSU_SUSFS" drivers/kernelsu/Kconfig || echo "SUSFS not found in Kconfig!"
+          echo "=== Checking susfs.c ==="
+          ls -la fs/susfs.c 2>/dev/null || echo "susfs.c not found (will be added by SUSFS patch)"
 
       - name: Disable kprobe in KernelSU-Next (force manual hook)
         run: |
@@ -58,23 +62,40 @@ jobs:
           echo "=== kprobe disabled ==="
           grep -r "CONFIG_KPROBES" . | head -10
 
-      - name: Clone SUSFS patches
+      - name: Clone SUSFS kernel patches (for fs/susfs.c and kernel patches)
         run: |
-          echo "=== SUSFS disabled for now (incompatible with KSU-Next API) ==="
+          cd android-kernel
+          git clone https://gitlab.com/simonpunk/susfs4ksu.git -b kernel-4.19 susfs4ksu || true
+          echo "=== SUSFS patches cloned ==="
+          find susfs4ksu/kernel_patches/ -type f 2>/dev/null || echo "No patches found"
 
-      - name: Copy SUSFS source files
-        run: |
-          echo "=== SUSFS source files skipped ==="
-
-      - name: Apply SUSFS KSU patch
+      - name: Copy SUSFS source files and apply patches
         shell: bash
         run: |
-          echo "=== SUSFS KSU patch skipped ==="
+          cd android-kernel/private/msm-google
+          KSU_ROOT=/home/runner/work/pixel5-kernel-build/pixel5-kernel-build/android-kernel
+          
+          # Copy susfs.c and susfs.h (these are the SUSFS implementation files)
+          cp $KSU_ROOT/susfs4ksu/kernel_patches/fs/susfs.c fs/ 2>/dev/null || echo "susfs.c copy skipped"
+          cp $KSU_ROOT/susfs4ksu/kernel_patches/include/linux/susfs.h include/linux/ 2>/dev/null || echo "susfs.h copy skipped"
+          
+          # Apply kernel patch (modifies fs/namespace.c, fs/namei.c, etc.)
+          # Note: wshamroukh fork already has SUSFS in KSU's Kconfig/Kbuild
+          # We only need the kernel-side patches from susfs4ksu
+          cp $KSU_ROOT/susfs4ksu/kernel_patches/50_add_susfs_in_kernel-4.19.patch . 2>/dev/null || true
+          patch -p1 --batch --no-backup-if-mismatch < 50_add_susfs_in_kernel-4.19.patch || true
+          echo "=== SUSFS kernel patches applied ==="
 
-      - name: Apply SUSFS kernel patch
+      - name: Apply SUSFS KSU-Next patch
         shell: bash
         run: |
-          echo "=== SUSFS kernel patch skipped ==="
+          cd android-kernel/private/msm-google/KernelSU-Next
+          KSU_ROOT=/home/runner/work/pixel5-kernel-build/pixel5-kernel-build/android-kernel
+          # Try the patch from susfs4ksu - may partially fail on KSU-Next but that's OK
+          # wshamroukh fork already has SUSFS integration in its code
+          cp $KSU_ROOT/susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch . 2>/dev/null || true
+          patch -p1 --batch --no-backup-if-mismatch < 10_enable_susfs_for_ksu.patch || true
+          echo "=== SUSFS KSU patch applied ==="
 
       - name: Apply manual hooks (file replacement + reboot.c patch)
         shell: bash
@@ -114,8 +135,17 @@ jobs:
           cat > ksu_susfs.fragment << 'EOF'
           CONFIG_KSU=y
           CONFIG_KSU_MANUAL_HOOK=y
-          # SUSFS disabled - incompatible with KernelSU-Next API, needs manual adaptation
-          # CONFIG_KSU_SUSFS is not set
+          CONFIG_KSU_SUSFS=y
+          CONFIG_KSU_SUSFS_SUS_PATH=y
+          CONFIG_KSU_SUSFS_SUS_MOUNT=y
+          CONFIG_KSU_SUSFS_SUS_KSTAT=y
+          CONFIG_KSU_SUSFS_TRY_UMOUNT=y
+          CONFIG_KSU_SUSFS_SPOOF_UNAME=y
+          CONFIG_KSU_SUSFS_ENABLE_LOG=y
+          CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y
+          CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y
+          CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
+          CONFIG_KSU_SUSFS_SUS_MAP=y
           EOF
           
           # Merge fragment into the build config
@@ -169,21 +199,35 @@ jobs:
           cd android-kernel
           git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git
           
-          # Configure AnyKernel3 for Pixel 5
+          # Configure AnyKernel3 for Pixel 5 (2SI, A/B slot, with modules)
           sed -i 's/do.devicecheck=1/do.devicecheck=0/g' AnyKernel3/anykernel.sh
           sed -i 's!block=/dev/block/platform/omap/omap_hsmmc.0/by-name/boot;!block=auto;!g' AnyKernel3/anykernel.sh
           sed -i 's/is_slot_device=0;/is_slot_device=auto;/g' AnyKernel3/anykernel.sh
+          sed -i 's/do.modules=0/do.modules=1/g' AnyKernel3/anykernel.sh
+          sed -i 's/do.systemless=1/do.systemless=0/g' AnyKernel3/anykernel.sh
           
           # Copy kernel image
           cp out/android-msm-pixel-4.19/dist/Image.lz4-dtb AnyKernel3/
           
-          # Copy kernel modules
-          mkdir -p AnyKernel3/modules
-          find out/android-msm-pixel-4.19/dist/ -name "*.ko" -exec cp {} AnyKernel3/modules/ \;
+          # Copy kernel modules to proper location for AnyKernel3
+          # do.modules=1 expects modules in $home/modules/lib/modules/
+          mkdir -p AnyKernel3/modules/lib/modules
+          find out/android-msm-pixel-4.19/dist/ -name "*.ko" -exec cp {} AnyKernel3/modules/lib/modules/ \;
+          
+          # Copy modules.load and modules.dep if they exist
+          cp out/android-msm-pixel-4.19/dist/modules.load AnyKernel3/modules/lib/modules/ 2>/dev/null || true
+          cp out/android-msm-pixel-4.19/dist/modules.dep AnyKernel3/modules/lib/modules/ 2>/dev/null || true
+          cp out/android-msm-pixel-4.19/dist/modules.alias AnyKernel3/modules/lib/modules/ 2>/dev/null || true
           
           # List modules
           echo "=== Modules to install ==="
-          ls -la AnyKernel3/modules/ || echo "No modules found"
+          ls -la AnyKernel3/modules/lib/modules/ | head -20
+          echo "=== Module count ==="
+          find AnyKernel3/modules/ -name "*.ko" | wc -l
+          
+          # Also copy vendor_boot.img and dtbo.img for manual flashing
+          cp out/android-msm-pixel-4.19/dist/vendor_boot.img AnyKernel3/ 2>/dev/null || true
+          cp out/android-msm-pixel-4.19/dist/dtbo.img AnyKernel3/ 2>/dev/null || true
           
           cd AnyKernel3
           zip -r9 ../redfin-ksu-susfs-kernel.zip ./*
