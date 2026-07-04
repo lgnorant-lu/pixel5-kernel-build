@@ -60,37 +60,21 @@ jobs:
 
       - name: Clone SUSFS patches
         run: |
-          cd android-kernel
-          git clone https://gitlab.com/simonpunk/susfs4ksu.git -b kernel-4.19 susfs4ksu
-          echo "=== SUSFS files ==="
-          find susfs4ksu/kernel_patches/ -type f
+          echo "=== SUSFS disabled for now (incompatible with KSU-Next API) ==="
 
       - name: Copy SUSFS source files
         run: |
-          cd android-kernel
-          KERNEL_ROOT=private/msm-google
-          cp susfs4ksu/kernel_patches/fs/* $KERNEL_ROOT/fs/
-          cp susfs4ksu/kernel_patches/include/linux/* $KERNEL_ROOT/include/linux/
-          echo "=== SUSFS files copied ==="
-          ls -la $KERNEL_ROOT/fs/susfs.c $KERNEL_ROOT/include/linux/susfs.h
+          echo "=== SUSFS source files skipped ==="
 
       - name: Apply SUSFS KSU patch
         shell: bash
         run: |
-          cd android-kernel/private/msm-google/KernelSU-Next
-          KSU_ROOT=/home/runner/work/pixel5-kernel-build/pixel5-kernel-build/android-kernel
-          cp $KSU_ROOT/susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch .
-          patch -p1 --batch --no-backup-if-mismatch < 10_enable_susfs_for_ksu.patch || true
-          echo "=== KSU SUSFS patch applied (some hunks may fail, expected) ==="
+          echo "=== SUSFS KSU patch skipped ==="
 
       - name: Apply SUSFS kernel patch
         shell: bash
         run: |
-          cd android-kernel/private/msm-google
-          KSU_ROOT=/home/runner/work/pixel5-kernel-build/pixel5-kernel-build/android-kernel
-          cp $KSU_ROOT/susfs4ksu/kernel_patches/50_add_susfs_in_kernel-4.19.patch .
-          patch -p1 --batch --no-backup-if-mismatch < 50_add_susfs_in_kernel-4.19.patch || true
-          echo "=== Kernel SUSFS patch applied (some hunks may fail, expected) ==="
+          echo "=== SUSFS kernel patch skipped ==="
 
       - name: Apply manual hooks (file replacement + reboot.c patch)
         shell: bash
@@ -130,17 +114,8 @@ jobs:
           cat > ksu_susfs.fragment << 'EOF'
           CONFIG_KSU=y
           CONFIG_KSU_MANUAL_HOOK=y
-          CONFIG_KSU_SUSFS=y
-          CONFIG_KSU_SUSFS_SUS_PATH=y
-          CONFIG_KSU_SUSFS_SUS_MOUNT=y
-          CONFIG_KSU_SUSFS_SUS_KSTAT=y
-          CONFIG_KSU_SUSFS_TRY_UMOUNT=y
-          CONFIG_KSU_SUSFS_SPOOF_UNAME=y
-          CONFIG_KSU_SUSFS_ENABLE_LOG=y
-          CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y
-          CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y
-          CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
-          CONFIG_KSU_SUSFS_SUS_MAP=y
+          # SUSFS disabled - incompatible with KernelSU-Next API, needs manual adaptation
+          # CONFIG_KSU_SUSFS is not set
           EOF
           
           # Merge fragment into the build config
