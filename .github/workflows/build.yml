@@ -92,76 +92,41 @@ jobs:
           patch -p1 --batch --no-backup-if-mismatch < 50_add_susfs_in_kernel-4.19.patch || true
           echo "=== Kernel SUSFS patch applied (some hunks may fail, expected) ==="
 
-      - name: Apply manual hooks (exec.c)
+      - name: Apply manual hooks to kernel source
+        shell: bash
         run: |
           cd android-kernel/private/msm-google
-          cat > /tmp/apply_hooks.sh << 'HOOKEOF'
-          #!/bin/bash
-          set -e
-          KSU_ROOT=android-kernel/private/msm-google
           
-          # === fs/exec.c ===
-          # Add extern declaration before do_execveat_common
-          sed -i '/^static int do_execveat_common/i #ifdef CONFIG_KSU\nextern int ksu_handle_execveat(int *fd, struct filename **filename_ptr, void *argv, void *envp, int *flags);\n#endif' $KSU_ROOT/fs/exec.c
+          # fs/exec.c - add hook to do_execveat_common
+          sed -i '/^static int do_execveat_common/i #ifdef CONFIG_KSU' fs/exec.c
+          sed -i '/^static int do_execveat_common/a #endif' fs/exec.c
+          sed -i 's/return __do_execve_file(fd, filename, argv, envp, flags, NULL);/\n#ifdef CONFIG_KSU\n\tksu_handle_execveat(\&fd, \&filename, \&argv, \&envp, \&flags);\n#endif\n\treturn __do_execve_file(fd, filename, argv, envp, flags, NULL);/' fs/exec.c
+          # Add extern declaration
+          grep -q 'ksu_handle_execveat' fs/exec.c || sed -i '/^#include/i extern int ksu_handle_execveat(int *fd, struct filename **filename_ptr, void *argv, void *envp, int *flags);' fs/exec.c
           
-          # Insert hook call at start of do_execveat_common body
-          # Find the function and insert after the opening brace
-          python3 -c "
-          import re
-          with open('$KSU_ROOT/fs/exec.c', 'r') as f:
-              content = f.read()
-          # Insert ksu hook right after the opening brace of do_execveat_common
-          content = re.sub(
-              r'(static int do_execveat_common\(int fd, struct filename \*filename,\s*\n.*?\)\s*\{)',
-              r'\1\n#ifdef CONFIG_KSU\n\tksu_handle_execveat(&fd, &filename, &argv, &envp, &flags);\n#endif',
-              content,
-              count=1,
-              flags=re.DOTALL
-          )
-          with open('$KSU_ROOT/fs/exec.c', 'w') as f:
-              f.write(content)
-          "
+          # fs/open.c - add hook to do_faccessat
+          sed -i '/^SYSCALL_DEFINE3(faccessat/i #ifdef CONFIG_KSU\nextern int ksu_handle_faccessat(int *dfd, const char __user **filename_user, int *mode, int *flags);\n#endif' fs/open.c
+          sed -i '/unsigned int lookup_flags = LOOKUP_FOLLOW;/a #ifdef CONFIG_KSU\n\tksu_handle_faccessat(\&dfd, \&filename, \&mode, NULL);\n#endif' fs/open.c || true
           
-          # === fs/open.c ===
-          # Add extern before do_faccessat / SYSCALL_DEFINE3(faccessat
-          sed -i '/^SYSCALL_DEFINE3(faccessat/i #ifdef CONFIG_KSU\nextern int ksu_handle_faccessat(int *dfd, const char __user **filename_user, int *mode, int *flags);\n#endif' $KSU_ROOT/fs/open.c
-          # Insert hook after lookup_flags declaration
-          sed -i '/unsigned int lookup_flags = LOOKUP_FOLLOW;/a #ifdef CONFIG_KSU\n\tksu_handle_faccessat(\&dfd, \&filename, \&mode, NULL);\n#endif' $KSU_ROOT/fs/open.c
+          # fs/read_write.c - add hook to vfs_read
+          sed -i '/^ssize_t vfs_read/i #ifdef CONFIG_KSU\nextern bool ksu_vfs_read_hook __read_mostly;\nextern int ksu_handle_vfs_read(struct file **file_ptr, char __user **buf_ptr, size_t *count_ptr, loff_t **pos);\n#endif' fs/read_write.c
+          sed -i '0,/ssize_t ret;$/{s/ssize_t ret;/ssize_t ret;\n#ifdef CONFIG_KSU\n\tif (unlikely(ksu_vfs_read_hook))\n\t\tksu_handle_vfs_read(\&file, \&buf, \&count, \&pos);\n#endif/}' fs/read_write.c || true
           
-          # === fs/read_write.c ===
-          # Add extern before vfs_read
-          sed -i '/^ssize_t vfs_read/i #ifdef CONFIG_KSU\nextern bool ksu_vfs_read_hook __read_mostly;\nextern int ksu_handle_vfs_read(struct file **file_ptr, char __user **buf_ptr, size_t *count_ptr, loff_t **pos);\n#endif' $KSU_ROOT/fs/read_write.c
-          # Insert hook at start of vfs_read body
-          python3 -c "
-          import re
-          with open('$KSU_ROOT/fs/read_write.c', 'r') as f:
-              content = f.read()
-          content = re.sub(
-              r'(ssize_t vfs_read\(struct file \*file, char __user \*buf, size_t count, loff_t \*pos\)\s*\{)',
-              r'\1\n#ifdef CONFIG_KSU\n\tif (unlikely(ksu_vfs_read_hook))\n\t\tksu_handle_vfs_read(\&file, \&buf, \&count, \&pos);\n#endif',
-              content,
-              count=1
-          )
-          with open('$KSU_ROOT/fs/read_write.c', 'w') as f:
-              f.write(content)
-          "
+          # fs/stat.c - add hook to vfs_statx
+          sed -i '/^int vfs_statx/i #ifdef CONFIG_KSU\nextern int ksu_handle_stat(int *dfd, const char __user **filename_user, int *flags);\n#endif' fs/stat.c
+          sed -i '/unsigned int lookup_flags = LOOKUP_FOLLOW | LOOKUP_AUTOMOUNT;/a #ifdef CONFIG_KSU\n\tksu_handle_stat(\&dfd, \&filename, \&flags);\n#endif' fs/stat.c || true
           
-          # === fs/stat.c ===
-          # Add extern before vfs_statx
-          sed -i '/^int vfs_statx/i #ifdef CONFIG_KSU\nextern int ksu_handle_stat(int *dfd, const char __user **filename_user, int *flags);\n#endif' $KSU_ROOT/fs/stat.c
-          # Insert hook after lookup_flags
-          sed -i '/unsigned int lookup_flags = LOOKUP_FOLLOW | LOOKUP_AUTOMOUNT;/a #ifdef CONFIG_KSU\n\tksu_handle_stat(\&dfd, \&filename, \&flags);\n#endif' $KSU_ROOT/fs/stat.c
-          
-          # === kernel/reboot.c ===
-          # Add extern before SYSCALL_DEFINE4(reboot
-          sed -i '/^SYSCALL_DEFINE4(reboot/i #ifdef CONFIG_KSU\nextern int ksu_handle_sys_reboot(int magic1, int magic2, unsigned int cmd, void __user **arg);\n#endif' $KSU_ROOT/kernel/reboot.c
-          # Insert hook after buffer declaration
-          sed -i '/char buffer\[256\];/a #ifdef CONFIG_KSU\n\tksu_handle_sys_reboot(magic1, magic2, cmd, \&arg);\n#endif' $KSU_ROOT/kernel/reboot.c
+          # kernel/reboot.c - add hook to reboot syscall
+          sed -i '/^SYSCALL_DEFINE4(reboot/i #ifdef CONFIG_KSU\nextern int ksu_handle_sys_reboot(int magic1, int magic2, unsigned int cmd, void __user **arg);\n#endif' kernel/reboot.c
+          sed -i '/char buffer\[256\];/a #ifdef CONFIG_KSU\n\tksu_handle_sys_reboot(magic1, magic2, cmd, \&arg);\n#endif' kernel/reboot.c || true
           
           echo "=== Manual hooks applied ==="
-          HOOKEOF
-          chmod +x /tmp/apply_hooks.sh
-          bash /tmp/apply_hooks.sh
+          echo "--- exec.c hook check ---"
+          grep -n 'ksu_handle' fs/exec.c | head -5
+          echo "--- open.c hook check ---"
+          grep -n 'ksu_handle' fs/open.c | head -5
+          echo "--- read_write.c hook check ---"
+          grep -n 'ksu_handle' fs/read_write.c | head -5
 
       - name: Add KSU + SUSFS config fragment
         run: |
