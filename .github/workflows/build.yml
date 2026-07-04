@@ -75,13 +75,26 @@ jobs:
           cd android-kernel/private/msm-google
           KSU_ROOT=/home/runner/work/pixel5-kernel-build/pixel5-kernel-build/android-kernel
           
-          # Copy susfs.c and susfs.h (these are the SUSFS implementation files)
-          cp $KSU_ROOT/susfs4ksu/kernel_patches/fs/susfs.c fs/ 2>/dev/null || echo "susfs.c copy skipped"
-          cp $KSU_ROOT/susfs4ksu/kernel_patches/include/linux/susfs.h include/linux/ 2>/dev/null || echo "susfs.h copy skipped"
+          # Copy ALL SUSFS source files including susfs_def.h, susfs.h, sus_su.h
+          echo "=== Files in susfs4ksu/kernel_patches/include/linux/ ==="
+          ls -la $KSU_ROOT/susfs4ksu/kernel_patches/include/linux/ 2>/dev/null || echo "Directory not found!"
+          
+          echo "=== Files in susfs4ksu/kernel_patches/fs/ ==="
+          ls -la $KSU_ROOT/susfs4ksu/kernel_patches/fs/ 2>/dev/null || echo "Directory not found!"
+          
+          # Copy all files from include/linux/
+          cp -v $KSU_ROOT/susfs4ksu/kernel_patches/include/linux/susfs.h include/linux/ 2>/dev/null || echo "susfs.h copy failed"
+          cp -v $KSU_ROOT/susfs4ksu/kernel_patches/include/linux/susfs_def.h include/linux/ 2>/dev/null || echo "susfs_def.h copy failed"
+          cp -v $KSU_ROOT/susfs4ksu/kernel_patches/include/linux/sus_su.h include/linux/ 2>/dev/null || echo "sus_su.h copy failed"
+          
+          # Copy susfs.c
+          cp -v $KSU_ROOT/susfs4ksu/kernel_patches/fs/susfs.c fs/ 2>/dev/null || echo "susfs.c copy failed"
+          
+          # Verify files exist
+          echo "=== Verify SUSFS files ==="
+          ls -la include/linux/susfs.h include/linux/susfs_def.h fs/susfs.c 2>&1
           
           # Apply kernel patch (modifies fs/namespace.c, fs/namei.c, etc.)
-          # Note: wshamroukh fork already has SUSFS in KSU's Kconfig/Kbuild
-          # We only need the kernel-side patches from susfs4ksu
           cp $KSU_ROOT/susfs4ksu/kernel_patches/50_add_susfs_in_kernel-4.19.patch . 2>/dev/null || true
           patch -p1 --batch --no-backup-if-mismatch < 50_add_susfs_in_kernel-4.19.patch || true
           echo "=== SUSFS kernel patches applied ==="
