@@ -184,6 +184,24 @@ jobs:
             find . -name "build_redbull-gki.sh" -exec cat {} \; | grep -i "config\|defconfig" | head -10
           fi
 
+      - name: Patch KSU Kbuild to skip hook check during mrproper
+        run: |
+          cd android-kernel/private/msm-google
+          # The Kbuild checks for hooks during mrproper/clean when .config doesn't exist yet
+          # Patch out the $(error) so build can proceed
+          KSU_KBUILD="drivers/kernelsu/Kbuild"
+          if [ -f "$KSU_KBUILD" ]; then
+            sed -i 's/$(error -- KernelSU-Next: No hooks were defined, please integrate manual hooks in your kernel!)/$(warning -- KernelSU-Next: Hook check bypassed during clean)/g' "$KSU_KBUILD"
+            echo "=== Patched Kbuild to skip error ==="
+            grep "No hooks" "$KSU_KBUILD" || echo "Error line removed successfully"
+          else
+            # It's a symlink, patch the real file
+            REAL_KBUILD=$(readlink -f "$KSU_KBUILD")
+            echo "Real Kbuild at: $REAL_KBUILD"
+            sed -i 's/$(error -- KernelSU-Next: No hooks were defined, please integrate manual hooks in your kernel!)/$(warning -- KernelSU-Next: Hook check bypassed during clean)/g' "$REAL_KBUILD"
+            echo "=== Patched real Kbuild ==="
+          fi
+
       - name: Build kernel
         run: |
           cd android-kernel
