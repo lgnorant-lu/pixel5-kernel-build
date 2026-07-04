@@ -92,61 +92,99 @@ jobs:
           patch -p1 --batch --no-backup-if-mismatch < 50_add_susfs_in_kernel-4.19.patch || true
           echo "=== Kernel SUSFS patch applied (some hunks may fail, expected) ==="
 
-      - name: Apply manual hooks to kernel source
+      - name: Apply manual hooks (file replacement + reboot.c patch)
         shell: bash
         run: |
           cd android-kernel/private/msm-google
           
-          # fs/exec.c - add hook to do_execveat_common
-          sed -i '/^static int do_execveat_common/i #ifdef CONFIG_KSU' fs/exec.c
-          sed -i '/^static int do_execveat_common/a #endif' fs/exec.c
-          sed -i 's/return __do_execve_file(fd, filename, argv, envp, flags, NULL);/\n#ifdef CONFIG_KSU\n\tksu_handle_execveat(\&fd, \&filename, \&argv, \&envp, \&flags);\n#endif\n\treturn __do_execve_file(fd, filename, argv, envp, flags, NULL);/' fs/exec.c
-          # Add extern declaration
-          grep -q 'ksu_handle_execveat' fs/exec.c || sed -i '/^#include/i extern int ksu_handle_execveat(int *fd, struct filename **filename_ptr, void *argv, void *envp, int *flags);' fs/exec.c
+          # Use CZB666's pre-modified files (correct hook placement for redbull 4.19)
+          # These files have hooks for: execveat, faccessat, vfs_read, vfs_statx
+          cp ../../../patches/exec.c fs/exec.c
+          cp ../../../patches/open.c fs/open.c
+          cp ../../../patches/read_write.c fs/read_write.c
+          cp ../../../patches/stat.c fs/stat.c
           
-          # fs/open.c - add hook to do_faccessat
-          sed -i '/^SYSCALL_DEFINE3(faccessat/i #ifdef CONFIG_KSU\nextern int ksu_handle_faccessat(int *dfd, const char __user **filename_user, int *mode, int *flags);\n#endif' fs/open.c
-          sed -i '/unsigned int lookup_flags = LOOKUP_FOLLOW;/a #ifdef CONFIG_KSU\n\tksu_handle_faccessat(\&dfd, \&filename, \&mode, NULL);\n#endif' fs/open.c || true
+          echo "=== File replacement done ==="
+          grep -c 'ksu_handle' fs/exec.c fs/open.c fs/read_write.c fs/stat.c
           
-          # fs/read_write.c - add hook to vfs_read
-          sed -i '/^ssize_t vfs_read/i #ifdef CONFIG_KSU\nextern bool ksu_vfs_read_hook __read_mostly;\nextern int ksu_handle_vfs_read(struct file **file_ptr, char __user **buf_ptr, size_t *count_ptr, loff_t **pos);\n#endif' fs/read_write.c
-          sed -i '0,/ssize_t ret;$/{s/ssize_t ret;/ssize_t ret;\n#ifdef CONFIG_KSU\n\tif (unlikely(ksu_vfs_read_hook))\n\t\tksu_handle_vfs_read(\&file, \&buf, \&count, \&pos);\n#endif/}' fs/read_write.c || true
+          # For kernel/reboot.c - need proper hook insertion (not in CZB666's repo)
+          # KSU-Next legacy requires ksu_handle_sys_reboot in reboot.c
+          python3 << 'PYEOF'
+          import re
           
-          # fs/stat.c - add hook to vfs_statx
-          sed -i '/^int vfs_statx/i #ifdef CONFIG_KSU\nextern int ksu_handle_stat(int *dfd, const char __user **filename_user, int *flags);\n#endif' fs/stat.c
-          sed -i '/unsigned int lookup_flags = LOOKUP_FOLLOW | LOOKUP_AUTOMOUNT;/a #ifdef CONFIG_KSU\n\tksu_handle_stat(\&dfd, \&filename, \&flags);\n#endif' fs/stat.c || true
+          with open('kernel/reboot.c', 'r') as f:
+              content = f.read()
           
-          # kernel/reboot.c - add hook to reboot syscall
-          sed -i '/^SYSCALL_DEFINE4(reboot/i #ifdef CONFIG_KSU\nextern int ksu_handle_sys_reboot(int magic1, int magic2, unsigned int cmd, void __user **arg);\n#endif' kernel/reboot.c
-          sed -i '/char buffer\[256\];/a #ifdef CONFIG_KSU\n\tksu_handle_sys_reboot(magic1, magic2, cmd, \&arg);\n#endif' kernel/reboot.c || true
+          # Add extern declaration after the last #include line
+          extern_block = """
+  #ifdef CONFIG_KSU
+  extern int ksu_handle_sys_reboot(int magic1, int magic2, unsigned int cmd, void __user **arg);
+  #endif
+  """
+          # Find SYSCALL_DEFINE4(reboot and insert hook after all variable declarations
+          # The function looks like:
+          # SYSCALL_DEFINE4(reboot, int, magic1, int, magic2, unsigned int, cmd, void __user *, arg)
+          # {
+          #     struct pid_namespace *pid_ns = task_active_pid_ns(current);
+          #     char buffer[256];
+          #     int ret = 0;
+          #     ...code...
           
-          # CRITICAL: Verify ksu_handle_sys_reboot is in reboot.c (KSU Kbuild checks this)
-          if ! grep -q 'ksu_handle_sys_reboot' kernel/reboot.c; then
-            echo "WARNING: ksu_handle_sys_reboot not found in reboot.c, force injecting..."
-            # Find SYSCALL_DEFINE4(reboot and inject after the opening brace
-            sed -i '/SYSCALL_DEFINE4(reboot/,/{/{
-              /{/a\#ifdef CONFIG_KSU\n\tksu_handle_sys_reboot(magic1, magic2, cmd, \&arg);\n#endif
-            }' kernel/reboot.c || true
-          fi
+          # Insert extern before the function
+          content = re.sub(
+              r'(SYSCALL_DEFINE4\(reboot,)',
+              extern_block + r'\1',
+              content,
+              count=1
+          )
           
-          # Also try alternative: inject near do_kernel_restart
-          if ! grep -q 'ksu_handle_sys_reboot' kernel/reboot.c; then
-            echo "WARNING: Still not found, trying brute force injection..."
-            # Add extern and call at top of file after includes
-            sed -i '/^#include/a #ifdef CONFIG_KSU\nextern int ksu_handle_sys_reboot(int magic1, int magic2, unsigned int cmd, void __user **arg);\n#endif' kernel/reboot.c
-            # Add call inside reboot syscall
-            sed -i '/struct pid_namespace \*pid_ns/i #ifdef CONFIG_KSU\n\tksu_handle_sys_reboot(magic1, magic2, cmd, \&arg);\n#endif' kernel/reboot.c || true
-          fi
+          # Find the function body and insert hook after the last declaration
+          # We need to find "int ret = 0;" and insert after it
+          content = re.sub(
+              r'(int ret = 0;\s*\n)',
+              r'\1#ifdef CONFIG_KSU\n\tksu_handle_sys_reboot(magic1, magic2, cmd, &arg);\n#endif\n',
+              content,
+              count=1
+          )
           
-          echo "=== Manual hooks applied ==="
-          echo "--- reboot.c hook check (CRITICAL) ---"
-          grep -n 'ksu_handle_sys_reboot' kernel/reboot.c || echo "FAILED: ksu_handle_sys_reboot NOT in reboot.c!"
-          echo "--- exec.c hook check ---"
-          grep -n 'ksu_handle' fs/exec.c | head -5
-          echo "--- open.c hook check ---"
-          grep -n 'ksu_handle' fs/open.c | head -5
-          echo "--- read_write.c hook check ---"
-          grep -n 'ksu_handle' fs/read_write.c | head -5
+          # If "int ret = 0;" not found, try "char buffer[256];"
+          if 'ksu_handle_sys_reboot' not in content.split('SYSCALL_DEFINE4(reboot')[1].split('}')[0] if 'SYSCALL_DEFINE4(reboot' in content else '':
+              content = re.sub(
+                  r'(char buffer\[256\];\s*\n)',
+                  r'\1#ifdef CONFIG_KSU\n\tksu_handle_sys_reboot(magic1, magic2, cmd, &arg);\n#endif\n',
+                  content,
+                  count=1
+              )
+          
+          # Fallback: if still not in the function, insert after the opening brace
+          if 'ksu_handle_sys_reboot' not in content:
+              # Find the function and insert after first opening brace
+              content = re.sub(
+                  r'(SYSCALL_DEFINE4\(reboot,[^}]*?\{)',
+                  r'\1\n#ifdef CONFIG_KSU\n\tksu_handle_sys_reboot(magic1, magic2, cmd, &arg);\n#endif',
+                  content,
+                  count=1,
+                  flags=re.DOTALL
+              )
+          
+          with open('kernel/reboot.c', 'w') as f:
+              f.write(content)
+          
+          print("=== reboot.c patched ===")
+          PYEOF
+          
+          # Verify all hooks
+          echo "=== Verification ==="
+          echo "--- reboot.c ---"
+          grep -n 'ksu_handle_sys_reboot' kernel/reboot.c || echo "FAILED!"
+          echo "--- exec.c ---"
+          grep -n 'ksu_handle_execveat' fs/exec.c | head -3
+          echo "--- open.c ---"
+          grep -n 'ksu_handle_faccessat' fs/open.c | head -3
+          echo "--- read_write.c ---"
+          grep -n 'ksu_handle_vfs_read' fs/read_write.c | head -3
+          echo "--- stat.c ---"
+          grep -n 'ksu_handle_stat' fs/stat.c | head -3
 
       - name: Add KSU + SUSFS config fragment
         run: |
