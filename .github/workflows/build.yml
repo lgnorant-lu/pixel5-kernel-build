@@ -120,7 +120,27 @@ jobs:
           sed -i '/^SYSCALL_DEFINE4(reboot/i #ifdef CONFIG_KSU\nextern int ksu_handle_sys_reboot(int magic1, int magic2, unsigned int cmd, void __user **arg);\n#endif' kernel/reboot.c
           sed -i '/char buffer\[256\];/a #ifdef CONFIG_KSU\n\tksu_handle_sys_reboot(magic1, magic2, cmd, \&arg);\n#endif' kernel/reboot.c || true
           
+          # CRITICAL: Verify ksu_handle_sys_reboot is in reboot.c (KSU Kbuild checks this)
+          if ! grep -q 'ksu_handle_sys_reboot' kernel/reboot.c; then
+            echo "WARNING: ksu_handle_sys_reboot not found in reboot.c, force injecting..."
+            # Find SYSCALL_DEFINE4(reboot and inject after the opening brace
+            sed -i '/SYSCALL_DEFINE4(reboot/,/{/{
+              /{/a\#ifdef CONFIG_KSU\n\tksu_handle_sys_reboot(magic1, magic2, cmd, \&arg);\n#endif
+            }' kernel/reboot.c || true
+          fi
+          
+          # Also try alternative: inject near do_kernel_restart
+          if ! grep -q 'ksu_handle_sys_reboot' kernel/reboot.c; then
+            echo "WARNING: Still not found, trying brute force injection..."
+            # Add extern and call at top of file after includes
+            sed -i '/^#include/a #ifdef CONFIG_KSU\nextern int ksu_handle_sys_reboot(int magic1, int magic2, unsigned int cmd, void __user **arg);\n#endif' kernel/reboot.c
+            # Add call inside reboot syscall
+            sed -i '/struct pid_namespace \*pid_ns/i #ifdef CONFIG_KSU\n\tksu_handle_sys_reboot(magic1, magic2, cmd, \&arg);\n#endif' kernel/reboot.c || true
+          fi
+          
           echo "=== Manual hooks applied ==="
+          echo "--- reboot.c hook check (CRITICAL) ---"
+          grep -n 'ksu_handle_sys_reboot' kernel/reboot.c || echo "FAILED: ksu_handle_sys_reboot NOT in reboot.c!"
           echo "--- exec.c hook check ---"
           grep -n 'ksu_handle' fs/exec.c | head -5
           echo "--- open.c hook check ---"
