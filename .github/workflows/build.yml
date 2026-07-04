@@ -77,14 +77,14 @@ jobs:
       - name: Apply SUSFS KSU patch
         run: |
           cd android-kernel/private/msm-google/KernelSU-Next
-          cp ../susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch .
-          patch -p1 < 10_enable_susfs_for_ksu.patch || echo "Some hunks failed (expected), continuing..."
+          cp ../../susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch .
+          patch -p1 --no-backup-if-mismatch < 10_enable_susfs_for_ksu.patch; true
 
       - name: Apply SUSFS kernel patch
         run: |
           cd android-kernel/private/msm-google
           cp ../susfs4ksu/kernel_patches/50_add_susfs_in_kernel-4.19.patch .
-          patch -p1 < 50_add_susfs_in_kernel-4.19.patch || echo "Some hunks failed (expected), continuing..."
+          patch -p1 --no-backup-if-mismatch < 50_add_susfs_in_kernel-4.19.patch; true
 
       - name: Apply manual hooks (exec.c)
         run: |
