@@ -1,8 +1,7 @@
 #!/bin/bash
-# Add fsnotify_add_inode_mark compat for 4.19 kernel
-# The SUSFS v2.2.0 patch uses #if >= 4.18.0 which includes 4.19,
-# but fsnotify_add_inode_mark was actually introduced in 5.9
+# Compat fixes for JackA1ltman v2.2.0 patch + wshamroukh KSU-Next legacy-susfs
 
+# 1. fsnotify_add_inode_mark compat (5.9+ function, 4.19 doesn't have it)
 cat >> include/linux/susfs_def.h << 'EOF'
 
 /* Compat: fsnotify_add_inode_mark introduced in 5.9, not in 4.19 */
@@ -10,6 +9,33 @@ cat >> include/linux/susfs_def.h << 'EOF'
 #define fsnotify_add_inode_mark(mark, inode, allow_dups) \
         fsnotify_add_mark(mark, &inode->i_fsnotify_marks, FSNOTIFY_OBJ_TYPE_INODE, allow_dups)
 #endif
+
+/* Alias: wshamroukh uses _ALL_PROCS, JackA1ltman uses _NON_SU_PROCS */
+#define CMD_SUSFS_HIDE_SUS_MNTS_FOR_ALL_PROCS CMD_SUSFS_HIDE_SUS_MNTS_FOR_NON_SU_PROCS
 EOF
 
-echo "=== Added fsnotify_add_inode_mark compat define ==="
+# 2. Add missing function declarations (wshamroukh references these)
+cat >> include/linux/susfs.h << 'EOF'
+
+/* wshamroukh KSU-Next legacy-susfs compatibility */
+void susfs_set_hide_sus_mnts_for_all_procs(void __user **user_info);
+void susfs_set_i_state_on_external_dir(void __user **user_info);
+EOF
+
+# 3. Add missing function stubs to susfs.c
+cat >> fs/susfs.c << 'EOF'
+
+/* wshamroukh KSU-Next legacy-susfs compatibility stubs */
+void susfs_set_hide_sus_mnts_for_all_procs(void __user **user_info) {
+    susfs_set_hide_sus_mnts_for_non_su_procs(user_info);
+}
+void susfs_set_i_state_on_external_dir(void __user **user_info) { }
+EOF
+
+# 4. Fix task_mmu.c if hunk failed (add include manually)
+if ! grep -q "susfs_def.h" fs/proc/task_mmu.c 2>/dev/null; then
+    echo "=== Fixing task_mmu.c (adding susfs_def.h include) ==="
+    sed -i '/#include <linux\/ctype.h>/a #if defined(CONFIG_KSU_SUSFS_SUS_KSTAT) || defined(CONFIG_KSU_SUSFS_SUS_MAP) || defined(CONFIG_KSU_SUSFS_OPEN_REDIRECT)\n#include <linux/susfs_def.h>\n#endif' fs/proc/task_mmu.c
+fi
+
+echo "=== All compat fixes applied ==="
