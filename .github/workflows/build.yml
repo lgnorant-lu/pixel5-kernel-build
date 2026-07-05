@@ -61,6 +61,8 @@ jobs:
       - name: Modify SUBLEVEL
         run: |
           cd android-kernel/private/msm-google
+          # Clean previous build artifacts and KSU-Next from cache
+          rm -rf out/ AnyKernel3/ KernelSU-Next/ drivers/kernelsu/
           sed -i 's/SUBLEVEL = .*/SUBLEVEL = ${{ env.SUBLEVEL }}/' Makefile
           grep SUBLEVEL Makefile
 
@@ -87,6 +89,7 @@ jobs:
       - name: Clone SUSFS kernel patches (JackA1ltman fork for 4.19 + KSU-Next)
         run: |
           cd android-kernel
+          rm -rf susfs4ksu
           git clone https://github.com/JackA1ltman/susfs_4.19_lastest_sussu.git susfs4ksu || {
             echo "JackA1ltman fork not available, falling back to simonpunk"
             git clone https://gitlab.com/simonpunk/susfs4ksu.git -b kernel-4.19 susfs4ksu || true
@@ -125,14 +128,14 @@ jobs:
         run: |
           cd android-kernel/private/msm-google/KernelSU-Next
           KSU_ROOT=/home/runner/work/pixel5-kernel-build/pixel5-kernel-build/android-kernel
-          cp $KSU_ROOT/susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch . 2>/dev/null || true
+          cp $KSU_ROOT/susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch . || true
           patch -p1 --batch --no-backup-if-mismatch < 10_enable_susfs_for_ksu.patch || true
           echo "=== SUSFS KSU patch applied ==="
           
           # CRITICAL: Verify KSU_SUSFS is now in Kconfig
           echo "=== Checking KSU_SUSFS in Kconfig ==="
           grep -c "KSU_SUSFS" kernel/Kconfig || echo "KSU_SUSFS NOT in Kconfig!"
-          grep "KSU_SUSFS" kernel/Kconfig | head -5
+          grep "KSU_SUSFS" kernel/Kconfig | head -5 || true
 
       - name: Apply manual hooks (file replacement + reboot.c patch)
         shell: bash
