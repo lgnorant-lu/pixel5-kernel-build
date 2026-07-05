@@ -84,18 +84,15 @@ jobs:
           echo "=== kprobe disabled ==="
           grep -r "CONFIG_KPROBES" . | head -10
 
-      - name: Clone SUSFS kernel patches (wodanesdag fork for KSU-Next compatibility)
+      - name: Clone SUSFS kernel patches (JackA1ltman fork for 4.19 + KSU-Next)
         run: |
           cd android-kernel
-          # Use wodanesdag/susfs4ksu non-gki branch which has KSU-Next adapted patches
-          git clone https://github.com/wodanesdag/susfs4ksu.git -b non-gki susfs4ksu || {
-            echo "wodanesdag fork not available, falling back to simonpunk"
+          git clone https://github.com/JackA1ltman/susfs_4.19_lastest_sussu.git susfs4ksu || {
+            echo "JackA1ltman fork not available, falling back to simonpunk"
             git clone https://gitlab.com/simonpunk/susfs4ksu.git -b kernel-4.19 susfs4ksu || true
           }
           echo "=== SUSFS patches cloned ==="
-          find susfs4ksu/kernel_patches/ -type f -name "*.patch" 2>/dev/null
-          find susfs4ksu/kernel_patches/ -type f -name "*.c" 2>/dev/null
-          find susfs4ksu/kernel_patches/ -type f -name "*.h" 2>/dev/null
+          find susfs4ksu/kernel_patches/ -type f 2>/dev/null
 
       - name: Copy SUSFS source files and apply patches
         shell: bash
@@ -105,7 +102,7 @@ jobs:
           
           # List available files
           echo "=== Available SUSFS files ==="
-          find $KSU_ROOT/susfs4ksu/kernel_patches/ -type f 2>/dev/null || echo "No patches dir!"
+          find $KSU_ROOT/susfs4ksu/kernel_patches/ -type f 2>/dev/null
           
           # Copy ALL SUSFS source files
           cp -v $KSU_ROOT/susfs4ksu/kernel_patches/include/linux/susfs.h include/linux/ 2>/dev/null || echo "susfs.h copy failed"
@@ -123,24 +120,19 @@ jobs:
           patch -p1 --batch --no-backup-if-mismatch < 50_add_susfs_in_kernel-4.19.patch || true
           echo "=== SUSFS kernel patches applied ==="
 
-      - name: Apply SUSFS KSU-Next patch (use wodanesdag's adapted patch)
+      - name: Apply SUSFS KSU-Next patch
         shell: bash
         run: |
           cd android-kernel/private/msm-google/KernelSU-Next
           KSU_ROOT=/home/runner/work/pixel5-kernel-build/pixel5-kernel-build/android-kernel
-          
-          # Look for KSU-Next adapted patch first
-          KSU_NEXT_PATCH=$(find $KSU_ROOT/susfs4ksu/ -name "*kernelsu-next*" -o -name "*ksu-next*" | head -1)
-          if [ -n "$KSU_NEXT_PATCH" ]; then
-            echo "=== Using KSU-Next adapted patch: $KSU_NEXT_PATCH ==="
-            cp "$KSU_NEXT_PATCH" .
-            patch -p1 --batch --no-backup-if-mismatch < "$(basename $KSU_NEXT_PATCH)" || true
-          else
-            echo "=== No KSU-Next specific patch found, trying generic patch ==="
-            cp $KSU_ROOT/susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch . 2>/dev/null || true
-            patch -p1 --batch --no-backup-if-mismatch < 10_enable_susfs_for_ksu.patch || true
-          fi
+          cp $KSU_ROOT/susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch . 2>/dev/null || true
+          patch -p1 --batch --no-backup-if-mismatch < 10_enable_susfs_for_ksu.patch || true
           echo "=== SUSFS KSU patch applied ==="
+          
+          # CRITICAL: Verify KSU_SUSFS is now in Kconfig
+          echo "=== Checking KSU_SUSFS in Kconfig ==="
+          grep -c "KSU_SUSFS" kernel/Kconfig || echo "KSU_SUSFS NOT in Kconfig!"
+          grep "KSU_SUSFS" kernel/Kconfig | head -5
 
       - name: Apply manual hooks (file replacement + reboot.c patch)
         shell: bash
