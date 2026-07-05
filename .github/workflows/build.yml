@@ -110,31 +110,39 @@ jobs:
           KSU_ROOT=/home/runner/work/pixel5-kernel-build/pixel5-kernel-build/android-kernel
           cd $KSU_ROOT/private/msm-google
           
-          # Clone JackA1ltman for kernel-side SUSFS patch and source files
+          # Clone JackA1ltman for kernel-side SUSFS patch (50_add_susfs_in_kernel-4.19.patch)
           cd $KSU_ROOT
           rm -rf susfs4ksu
           git clone https://github.com/JackA1ltman/susfs_4.19_lastest_sussu.git susfs4ksu || true
           
-          cd $KSU_ROOT/private/msm-google
-          # Copy SUSFS source files to kernel
-          cp -v $KSU_ROOT/susfs4ksu/kernel_patches/include/linux/susfs.h include/linux/ 2>/dev/null || true
-          cp -v $KSU_ROOT/susfs4ksu/kernel_patches/include/linux/susfs_def.h include/linux/ 2>/dev/null || true
-          cp -v $KSU_ROOT/susfs4ksu/kernel_patches/include/linux/sus_su.h include/linux/ 2>/dev/null || true
-          cp -v $KSU_ROOT/susfs4ksu/kernel_patches/fs/susfs.c fs/ 2>/dev/null || true
-          cp -v $KSU_ROOT/susfs4ksu/kernel_patches/fs/sus_su.c fs/ 2>/dev/null || true
+          # Also clone crdroid for SUSFS v2.2.0 source files (susfs.h, susfs_def.h, susfs.c)
+          rm -rf crdroid-kernel
+          git clone --depth=1 https://github.com/crdroidandroid/android_kernel_xiaomi_sm8150 crdroid-kernel || true
           
-          # ALSO ensure susfs_def.h has susfs_set_current_proc_umounted (added in newer SUSFS versions)
-          if ! grep -q "susfs_set_current_proc_umounted" include/linux/susfs_def.h 2>/dev/null; then
-            echo "=== Adding susfs_set_current_proc_umounted to susfs_def.h ==="
-            echo "" >> include/linux/susfs_def.h
-            echo "#ifdef CONFIG_KSU_SUSFS" >> include/linux/susfs_def.h
-            echo "static inline void susfs_set_current_proc_umounted(void) { }" >> include/linux/susfs_def.h
-            echo "#endif" >> include/linux/susfs_def.h
+          cd $KSU_ROOT/private/msm-google
+          # Copy SUSFS v2.2.0 source files from crdroid (matches wshamroukh legacy-susfs API)
+          cp -v $KSU_ROOT/crdroid-kernel/include/linux/susfs.h include/linux/ 2>/dev/null || true
+          cp -v $KSU_ROOT/crdroid-kernel/include/linux/susfs_def.h include/linux/ 2>/dev/null || true
+          cp -v $KSU_ROOT/crdroid-kernel/fs/susfs.c fs/ 2>/dev/null || true
+          
+          # If crdroid files not available, fallback to JackA1ltman
+          if [ ! -f include/linux/susfs.h ]; then
+            cp -v $KSU_ROOT/susfs4ksu/kernel_patches/include/linux/susfs.h include/linux/ 2>/dev/null || true
+            cp -v $KSU_ROOT/susfs4ksu/kernel_patches/include/linux/susfs_def.h include/linux/ 2>/dev/null || true
+            cp -v $KSU_ROOT/susfs4ksu/kernel_patches/fs/susfs.c fs/ 2>/dev/null || true
           fi
           
-          # Verify the function exists
+          # Copy remaining files from JackA1ltman
+          cp -v $KSU_ROOT/susfs4ksu/kernel_patches/include/linux/sus_su.h include/linux/ 2>/dev/null || true
+          cp -v $KSU_ROOT/susfs4ksu/kernel_patches/fs/sus_su.c fs/ 2>/dev/null || true
+          
+          # Verify susfs_def.h has needed functions
           echo "=== Checking susfs_set_current_proc_umounted ==="
-          grep "susfs_set_current_proc_umounted" include/linux/susfs_def.h || echo "STILL NOT in susfs_def.h!"
+          grep "susfs_set_current_proc_umounted" include/linux/susfs_def.h || echo "NOT in susfs_def.h!"
+          echo "=== Checking SUSFS_MAGIC ==="
+          grep "SUSFS_MAGIC" include/linux/susfs_def.h || echo "NOT in susfs_def.h!"
+          echo "=== SUSFS_VERSION ==="
+          grep "SUSFS_VERSION" include/linux/susfs.h || echo "NOT in susfs.h!"
           
           # Apply kernel-side SUSFS patch (modifies fs/namespace.c, fs/namei.c, etc.)
           cp $KSU_ROOT/susfs4ksu/kernel_patches/50_add_susfs_in_kernel-4.19.patch . 2>/dev/null || true
