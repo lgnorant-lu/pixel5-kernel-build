@@ -32,10 +32,14 @@ void susfs_set_hide_sus_mnts_for_all_procs(void __user **user_info) {
 void susfs_set_i_state_on_external_dir(void __user **user_info) { }
 EOF
 
-# 4. Fix task_mmu.c if hunk failed (add include manually)
+# 4. Fix task_mmu.c - ensure susfs_def.h is included (hunk #1 may fail on some 4.19 kernels)
 if ! grep -q "susfs_def.h" fs/proc/task_mmu.c 2>/dev/null; then
-    echo "=== Fixing task_mmu.c (adding susfs_def.h include) ==="
-    sed -i '/#include <linux\/ctype.h>/a #if defined(CONFIG_KSU_SUSFS_SUS_KSTAT) || defined(CONFIG_KSU_SUSFS_SUS_MAP) || defined(CONFIG_KSU_SUSFS_OPEN_REDIRECT)\n#include <linux/susfs_def.h>\n#endif' fs/proc/task_mmu.c
+    echo "=== Adding susfs_def.h include to task_mmu.c ==="
+    # Try multiple anchor points
+    sed -i '/#include <linux\/ctype.h>/a #if defined(CONFIG_KSU_SUSFS_SUS_KSTAT) || defined(CONFIG_KSU_SUSFS_SUS_MAP) || defined(CONFIG_KSU_SUSFS_OPEN_REDIRECT)\n#include <linux/susfs_def.h>\n#endif' fs/proc/task_mmu.c 2>/dev/null || \
+    sed -i '/#include <linux\/uaccess.h>/a #if defined(CONFIG_KSU_SUSFS_SUS_KSTAT) || defined(CONFIG_KSU_SUSFS_SUS_MAP) || defined(CONFIG_KSU_SUSFS_OPEN_REDIRECT)\n#include <linux/susfs_def.h>\n#endif' fs/proc/task_mmu.c 2>/dev/null || \
+    sed -i '1i #if defined(CONFIG_KSU_SUSFS_SUS_KSTAT) || defined(CONFIG_KSU_SUSFS_SUS_MAP) || defined(CONFIG_KSU_SUSFS_OPEN_REDIRECT)\n#include <linux/susfs_def.h>\n#endif' fs/proc/task_mmu.c
+    grep -q "susfs_def.h" fs/proc/task_mmu.c && echo "=== task_mmu.c fixed ===" || echo "=== WARNING: task_mmu.c fix failed ==="
 fi
 
 echo "=== All compat fixes applied ==="
