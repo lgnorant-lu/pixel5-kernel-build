@@ -47,6 +47,9 @@ void susfs_sus_ino_for_filldir64(unsigned long ino) { }
 /* v2.0.0 functions used by wshamroukh KSU code but not in manipvlator v2.2.0 */
 void susfs_try_umount_all(uid_t uid) { }
 void susfs_reorder_mnt_id(void) { }
+void susfs_run_sus_path_loop(uid_t uid) { }
+/* susfs_is_avc_log_spoofing_enabled is static in v2.2.0 susfs.c but referenced externally */
+bool susfs_is_avc_log_spoofing_enabled(void) { return false; }
 SUSFS_C_EOF
 
 # Add pragma to suppress fsnotify type mismatch in susfs.c (4.19 kernel API differs from v2.2.0)
