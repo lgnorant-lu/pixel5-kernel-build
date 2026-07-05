@@ -49,6 +49,10 @@ void susfs_try_umount_all(uid_t uid) { }
 void susfs_reorder_mnt_id(void) { }
 /* wshamroukh calls susfs_run_sus_path_loop(uid_t uid), v2.2.0 has static void (void) */
 void susfs_run_sus_path_loop(uid_t uid) { susfs_run_sus_path_loop_internal(); }
+
+/* susfs_is_avc_log_spoofing_enabled is extern bool in v2.2.0, defined in avc.c */
+/* But JackA1ltman's v1.5.x patch doesn't define it, so we define it here */
+bool susfs_is_avc_log_spoofing_enabled = false;
 SUSFS_C_EOF
 
 # Add pragma to suppress fsnotify type mismatch in susfs.c (4.19 kernel API differs from v2.2.0)
