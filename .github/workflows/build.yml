@@ -61,95 +61,65 @@ jobs:
       - name: Modify SUBLEVEL
         run: |
           cd android-kernel/private/msm-google
-          # Clean previous build artifacts and KSU-Next from cache
           rm -rf out/ AnyKernel3/ KernelSU-Next/ drivers/kernelsu/
           sed -i 's/SUBLEVEL = .*/SUBLEVEL = ${{ env.SUBLEVEL }}/' Makefile
           grep SUBLEVEL Makefile
 
-      - name: Setup KernelSU-Next with SUSFS (manual clone from wshamroukh fork)
+      - name: Setup KernelSU-Next with SUSFS (wshamroukh legacy-susfs branch)
         run: |
           cd android-kernel/private/msm-google
-          # setup.sh hardcodes KernelSU-Next/KernelSU-Next repo, but we need wshamroukh fork
-          # So we do manual clone + symlink (same as JackA1ltman's "manual" method)
-          
           KSU_REPO="https://github.com/wshamroukh/KernelSU-Next-SUSFS-kernelv4.19"
           KSU_BRANCH="legacy-susfs"
-          KSU_NAME="KernelSU-Next"
-          
-          git clone "$KSU_REPO" -b "$KSU_BRANCH" "$KSU_NAME" --depth=1
-          ln -sf "$(realpath --relative-to=drivers "$KSU_NAME/kernel")" drivers/kernelsu
-          
-          # Add to drivers/Makefile
+          git clone "$KSU_REPO" -b "$KSU_BRANCH" "KernelSU-Next" --depth=1
+          ln -sf "$(realpath --relative-to=drivers "KernelSU-Next/kernel")" drivers/kernelsu
           grep -q "kernelsu" drivers/Makefile || printf '\nobj-$(CONFIG_KSU) += kernelsu/\n' >> drivers/Makefile
-          
-          # Add to drivers/Kconfig
           grep -q 'source "drivers/kernelsu/Kconfig"' drivers/Kconfig || sed -i '/endmenu/i\source "drivers/kernelsu/Kconfig"' drivers/Kconfig
-          
           echo "=== KernelSU-Next + SUSFS setup complete ==="
-          echo "=== KSU branch ==="
-          cd KernelSU-Next && git branch && cd ..
-          echo "=== Checking SUSFS in Kconfig ==="
           grep -c "KSU_SUSFS" drivers/kernelsu/Kconfig || echo "SUSFS not found in Kconfig!"
-          echo "=== Checking KSU_SUSFS config ==="
-          grep "KSU_SUSFS" drivers/kernelsu/Kconfig | head -5 || true
 
       - name: Disable kprobe in KernelSU-Next (force manual hook)
         run: |
           cd android-kernel/private/msm-google/KernelSU-Next/kernel
-          # Replace all #ifdef CONFIG_KPROBES with disabled version
           find . -type f \( -name '*.c' -o -name '*.h' \) -exec sed -i 's/#ifdef CONFIG_KPROBES/#if defined(CONFIG_KPROBES) \&\& 0/g' {} +
           echo "=== kprobe disabled ==="
-          grep -r "CONFIG_KPROBES" . | head -10
 
-      - name: SUSFS patches (NOT NEEDED - using legacy-susfs branch)
+      - name: Apply SUSFS v2.2.0 complete patch (JackA1ltman NonGKI_Kernel_Build_2nd)
         shell: bash
         run: |
-          echo "=== SUSFS already integrated in legacy-susfs branch, no patches needed ==="
-          # Just need to copy susfs.c and susfs_def.h to kernel source
-          # The 50_add_susfs_in_kernel-4.19.patch is still needed for kernel-side hooks
-          KSU_ROOT=/home/runner/work/pixel5-kernel-build/pixel5-kernel-build/android-kernel
-          cd $KSU_ROOT/private/msm-google
+          cd android-kernel
+          rm -rf NonGKI_Build
+          git clone --depth=1 https://github.com/JackA1ltman/NonGKI_Kernel_Build_2nd.git -b mainline NonGKI_Build || true
           
-          # Clone JackA1ltman for kernel-side SUSFS patch (50_add_susfs_in_kernel-4.19.patch)
-          cd $KSU_ROOT
-          rm -rf susfs4ksu manipvlator-kernel miz-kernel
-          git clone https://github.com/JackA1ltman/susfs_4.19_lastest_sussu.git susfs4ksu || true
+          cd private/msm-google
           
-          # Clone MizProject for SUSFS v2.0.0 source files (4.19 kernel, NO fsnotify, supercall ABI)
-          # MizProject is 4.19.162 kernel with SUSFS v2.0.0 - perfect match for our 4.19.278
-          git clone --depth=1 https://github.com/MizProject/MizKernel-Galaxy-A12s-Refresh miz-kernel || true
+          # Apply the complete SUSFS v2.2.0 patch (self-contained: susfs.c + susfs.h + susfs_def.h + all kernel hooks)
+          cp ../../NonGKI_Build/Patches/Patch/susfs_patch_to_4.19.patch .
+          patch -p1 --batch --no-backup-if-mismatch < susfs_patch_to_4.19.patch || true
+          echo "=== SUSFS v2.2.0 patch applied ==="
           
-          cd $KSU_ROOT/private/msm-google
-          # Use v2.0.0 source files from MizProject (4.19 native, no fsnotify issues)
-          cp -v $KSU_ROOT/miz-kernel/include/linux/susfs.h include/linux/ 2>/dev/null || true
-          cp -v $KSU_ROOT/miz-kernel/include/linux/susfs_def.h include/linux/ 2>/dev/null || true
-          cp -v $KSU_ROOT/miz-kernel/fs/susfs.c fs/ 2>/dev/null || true
-          
-          # Copy susfs_backports.h is NOT used - it references struct members not in JackA1ltman's patch
-          # Instead, stubs for missing functions are added in susfs_v2_compat.sh
-          
-          # Copy sus_su from JackA1ltman (not in MizProject)
-          cp -v $KSU_ROOT/susfs4ksu/kernel_patches/include/linux/sus_su.h include/linux/ 2>/dev/null || true
-          cp -v $KSU_ROOT/susfs4ksu/kernel_patches/fs/sus_su.c fs/ 2>/dev/null || true
-          
-          # Add v2.0.0 compatibility shims for wshamroukh legacy-susfs
-          bash ../../../patches/susfs_v2_compat.sh
-          echo "=== SUSFS v2.0.0 compatibility patches applied ==="
-          
-          # Verify susfs files
-          echo "=== Checking SUSFS files ==="
-          ls -la include/linux/susfs.h include/linux/susfs_def.h fs/susfs.c 2>&1
+          # Verify SUSFS files
           echo "=== SUSFS_VERSION ==="
           grep "SUSFS_VERSION" include/linux/susfs.h || echo "NOT in susfs.h!"
           echo "=== SUSFS_MAGIC ==="
           grep "SUSFS_MAGIC" include/linux/susfs_def.h || echo "NOT in susfs_def.h!"
+          echo "=== susfs.c exists ==="
+          ls -la fs/susfs.c || echo "susfs.c NOT found!"
           
-          # Apply kernel-side SUSFS patch (modifies fs/namespace.c, fs/namei.c, etc.)
-          cp $KSU_ROOT/susfs4ksu/kernel_patches/50_add_susfs_in_kernel-4.19.patch . 2>/dev/null || true
-          patch -p1 --batch --no-backup-if-mismatch < 50_add_susfs_in_kernel-4.19.patch || true
-          echo "=== Kernel-side SUSFS patches applied ==="
+          # Preemptive compat: define fsnotify_add_inode_mark if not exists (4.19 may not have it)
+          # The patch uses #if LINUX_VERSION_CODE >= 4.18.0 which includes 4.19,
+          # but fsnotify_add_inode_mark was actually introduced in 5.9
+          # Add a wrapper define to susfs_def.h
+          cat >> include/linux/susfs_def.h << 'FSNOTIFY_COMPAT_EOF'
 
-      - name: Apply manual hooks (JackA1ltman's normal_patches.sh)
+/* Compat: fsnotify_add_inode_mark introduced in 5.9, not in 4.19 */
+#ifndef fsnotify_add_inode_mark
+#define fsnotify_add_inode_mark(mark, inode, allow_dups) \
+        fsnotify_add_mark(mark, &inode->i_fsnotify_marks, FSNOTIFY_OBJ_TYPE_INODE, allow_dups)
+#endif
+FSNOTIFY_COMPAT_EOF
+          echo "=== Added fsnotify_add_inode_mark compat define ==="
+
+      - name: Apply manual hooks (JackA1ltman's normal_patches.sh + reboot.c)
         shell: bash
         run: |
           cd android-kernel/private/msm-google
@@ -168,27 +138,15 @@ jobs:
         shell: bash
         run: |
           cd android-kernel/private/msm-google
-          
           CONFIG_FILE="build.config.redbull.vintf"
           if [ ! -f "$CONFIG_FILE" ]; then
             echo "ERROR: $CONFIG_FILE not found!"
             find . -name "build.config.redbull*" 2>/dev/null
             exit 1
           fi
-          
-          echo "=== Original update_config function ==="
-          grep -A 15 "function update_config" "$CONFIG_FILE"
-          
-          # Use Python to inject config options AFTER olddefconfig
           python3 << 'PYEOF'
           with open('build.config.redbull.vintf', 'r') as f:
               content = f.read()
-          
-          # We need to inject scripts/config AFTER olddefconfig, not before it
-          # The olddefconfig line looks like:
-          #   make O=${OUT_DIR} ... olddefconfig)
-          # We add our scripts/config call after the closing paren of olddefconfig
-          
           inject = """
               # KSU + SUSFS config injection (after olddefconfig)
               ${KERNEL_DIR}/scripts/config --file ${OUT_DIR}/.config \\
@@ -209,37 +167,24 @@ jobs:
               (cd ${OUT_DIR} && \\
               make O=${OUT_DIR} CLANG_TRIPLE=${CLANG_TRIPLE} CROSS_COMPILE=${CROSS_COMPILE} "${TOOL_ARGS[@]}" ${MAKE_ARGS} olddefconfig)
           """
-          
-          # Find the olddefconfig line and inject after the closing parenthesis
-          # The pattern is: olddefconfig)\n}
           content = content.replace(
               'olddefconfig)\n}',
               'olddefconfig)\n' + inject + '\n}'
           )
-          
           with open('build.config.redbull.vintf', 'w') as f:
               f.write(content)
-          
-          print("=== Config injected successfully (AFTER olddefconfig) ===")
+          print("=== Config injected successfully ===")
           PYEOF
-          
-          echo "=== Modified update_config function ==="
-          grep -A 40 "function update_config" "$CONFIG_FILE"
 
       - name: Patch KSU Kbuild to skip hook check during mrproper
         run: |
           cd android-kernel/private/msm-google
-          # The Kbuild checks for hooks during mrproper/clean when .config doesn't exist yet
-          # Patch out the $(error) so build can proceed
           KSU_KBUILD="drivers/kernelsu/Kbuild"
           if [ -f "$KSU_KBUILD" ]; then
             sed -i 's/$(error -- KernelSU-Next: No hooks were defined, please integrate manual hooks in your kernel!)/$(warning -- KernelSU-Next: Hook check bypassed during clean)/g' "$KSU_KBUILD"
-            echo "=== Patched Kbuild to skip error ==="
-            grep "No hooks" "$KSU_KBUILD" || echo "Error line removed successfully"
+            echo "=== Patched Kbuild ==="
           else
-            # It's a symlink, patch the real file
             REAL_KBUILD=$(readlink -f "$KSU_KBUILD")
-            echo "Real Kbuild at: $REAL_KBUILD"
             sed -i 's/$(error -- KernelSU-Next: No hooks were defined, please integrate manual hooks in your kernel!)/$(warning -- KernelSU-Next: Hook check bypassed during clean)/g' "$REAL_KBUILD"
             echo "=== Patched real Kbuild ==="
           fi
@@ -247,14 +192,13 @@ jobs:
       - name: Build kernel
         run: |
           cd android-kernel
-          # Clean previous build output to avoid cache issues
           rm -rf out/ AnyKernel3/
           LTO=thin ./private/msm-google/build_redbull-gki.sh
 
       - name: Verify build output
         run: |
           echo "=== Build output ==="
-          ls -la android-kernel/out/android-msm-pixel-4.19/dist/ 2>/dev/null || echo "dist not found, checking out/"
+          ls -la android-kernel/out/android-msm-pixel-4.19/dist/ 2>/dev/null || echo "dist not found"
           find android-kernel/out/ -name "Image.lz4-dtb" 2>/dev/null
           find android-kernel/out/ -name "*.ko" 2>/dev/null | head -10
           find android-kernel/out/ -name "boot.img" 2>/dev/null
@@ -264,40 +208,23 @@ jobs:
           cd android-kernel
           rm -rf AnyKernel3
           git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git
-          
-          # Configure AnyKernel3 for Pixel 5 (2SI, A/B slot, with modules)
           sed -i 's/do.devicecheck=1/do.devicecheck=0/g' AnyKernel3/anykernel.sh
           sed -i 's!block=/dev/block/platform/omap/omap_hsmmc.0/by-name/boot;!block=auto;!g' AnyKernel3/anykernel.sh
           sed -i 's/is_slot_device=0;/is_slot_device=auto;/g' AnyKernel3/anykernel.sh
           sed -i 's/do.modules=0/do.modules=1/g' AnyKernel3/anykernel.sh
           sed -i 's/do.systemless=1/do.systemless=0/g' AnyKernel3/anykernel.sh
-          
-          # Copy kernel image
           cp out/android-msm-pixel-4.19/dist/Image.lz4-dtb AnyKernel3/
-          
-          # Copy kernel modules to proper location for AnyKernel3
-          # do.modules=1 expects modules in $home/modules/lib/modules/
           mkdir -p AnyKernel3/modules/lib/modules
           find out/android-msm-pixel-4.19/dist/ -name "*.ko" -exec cp {} AnyKernel3/modules/lib/modules/ \;
-          
-          # Copy modules.load and modules.dep if they exist
           cp out/android-msm-pixel-4.19/dist/modules.load AnyKernel3/modules/lib/modules/ 2>/dev/null || true
           cp out/android-msm-pixel-4.19/dist/modules.dep AnyKernel3/modules/lib/modules/ 2>/dev/null || true
           cp out/android-msm-pixel-4.19/dist/modules.alias AnyKernel3/modules/lib/modules/ 2>/dev/null || true
-          
-          # List modules
-          echo "=== Modules to install ==="
-          ls -la AnyKernel3/modules/lib/modules/ | head -20
-          echo "=== Module count ==="
-          find AnyKernel3/modules/ -name "*.ko" | wc -l
-          
-          # Also copy vendor_boot.img and dtbo.img for manual flashing
           cp out/android-msm-pixel-4.19/dist/vendor_boot.img AnyKernel3/ 2>/dev/null || true
           cp out/android-msm-pixel-4.19/dist/dtbo.img AnyKernel3/ 2>/dev/null || true
-          
+          echo "=== Modules ==="
+          find AnyKernel3/modules/ -name "*.ko" | wc -l
           cd AnyKernel3
           zip -r9 ../redfin-ksu-susfs-kernel.zip ./*
-          
           echo "=== AnyKernel3 zip created ==="
           ls -la ../redfin-ksu-susfs-kernel.zip
 
