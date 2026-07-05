@@ -55,6 +55,8 @@ cat >> fs/susfs.c << 'SUSFS_STUB_EOF'
 bool susfs_is_avc_log_spoofing_enabled = false;
 void susfs_reorder_mnt_id(void) { }
 void susfs_add_try_umount(void __user **user_info) { }
+void susfs_try_umount_all(uid_t uid) { }
+void susfs_try_umount(uid_t uid) { }
 SUSFS_STUB_EOF
 
 echo "=== SUSFS v2.0.0 (MizProject 4.19) compatibility applied ==="
