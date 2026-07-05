@@ -52,6 +52,10 @@ void susfs_get_enabled_features(void __user *user_info) { }
 void susfs_show_variant(void __user *user_info) { }
 void susfs_show_version(void __user *user_info) { }
 void susfs_add_sus_map(void __user *user_info) { }
+void susfs_try_umount_all(uid_t uid) { }
+void susfs_reorder_mnt_id(void) { }
+void susfs_run_sus_path_loop(uid_t uid) { }
+void ksu_try_umount(const char *mnt, bool check_mnt, int flags) { }
 SUSFS_C_EOF
 
 # Add CMD_SUSFS_ADD_SUS_MAP to susfs_def.h
