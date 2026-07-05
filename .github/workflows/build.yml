@@ -66,17 +66,18 @@ jobs:
           sed -i 's/SUBLEVEL = .*/SUBLEVEL = ${{ env.SUBLEVEL }}/' Makefile
           grep SUBLEVEL Makefile
 
-      - name: Setup KernelSU-Next with SUSFS (legacy/non-GKI 4.19)
+      - name: Setup KernelSU-Next with SUSFS (legacy-susfs branch, pre-integrated)
         run: |
           cd android-kernel/private/msm-google
-          # Use wshamroukh's fork which has SUSFS v2.0.0+ integrated for 4.19 kernel
-          curl -LSs "https://raw.githubusercontent.com/wshamroukh/KernelSU-Next-SUSFS-kernelv4.19/legacy/kernel/setup.sh" | bash -s legacy
+          # Use wshamroukh's legacy-susfs branch - SUSFS is already integrated!
+          # No need for separate SUSFS patches
+          curl -LSs "https://raw.githubusercontent.com/wshamroukh/KernelSU-Next-SUSFS-kernelv4.19/legacy-susfs/kernel/setup.sh" | bash -s legacy-susfs
           echo "=== KernelSU-Next + SUSFS setup complete ==="
           ls -la drivers/kernelsu/
-          echo "=== Checking SUSFS config ==="
+          echo "=== Checking SUSFS in Kconfig ==="
           grep -c "KSU_SUSFS" drivers/kernelsu/Kconfig || echo "SUSFS not found in Kconfig!"
-          echo "=== Checking susfs.c ==="
-          ls -la fs/susfs.c 2>/dev/null || echo "susfs.c not found (will be added by SUSFS patch)"
+          echo "=== Checking SUSFS in kernel source ==="
+          ls -la fs/susfs.c 2>/dev/null || echo "susfs.c not in kernel source (expected - it's in KSU)"
 
       - name: Disable kprobe in KernelSU-Next (force manual hook)
         run: |
@@ -86,54 +87,32 @@ jobs:
           echo "=== kprobe disabled ==="
           grep -r "CONFIG_KPROBES" . | head -10
 
-      - name: Clone SUSFS kernel patches (JackA1ltman for 4.19 kernel + wodanesdag for KSU-Next)
-        run: |
-          cd android-kernel
-          rm -rf susfs4ksu susfs4ksu-ksn
-          # JackA1ltman: 50_add_susfs_in_kernel-4.19.patch + susfs.c/h/def.h
-          git clone https://github.com/JackA1ltman/susfs_4.19_lastest_sussu.git susfs4ksu || true
-          # wodanesdag: susfs-v2.0.0_kernelsu-next-legacy.patch (KSU-Next adapted)
-          git clone https://github.com/wodanesdag/susfs4ksu.git -b non-gki susfs4ksu-ksn || true
-          echo "=== JackA1ltman files ==="
-          find susfs4ksu/kernel_patches/ -type f 2>/dev/null
-          echo "=== wodanesdag KSU-Next files ==="
-          find susfs4ksu-ksn/kernel_patches/ -type f 2>/dev/null
-
-      - name: Copy SUSFS source files and apply patches
+      - name: SUSFS patches (NOT NEEDED - using legacy-susfs branch)
         shell: bash
         run: |
-          cd android-kernel/private/msm-google
+          echo "=== SUSFS already integrated in legacy-susfs branch, no patches needed ==="
+          # Just need to copy susfs.c and susfs_def.h to kernel source
+          # The 50_add_susfs_in_kernel-4.19.patch is still needed for kernel-side hooks
           KSU_ROOT=/home/runner/work/pixel5-kernel-build/pixel5-kernel-build/android-kernel
+          cd $KSU_ROOT/private/msm-google
           
-          # Copy SUSFS source files from JackA1ltman (4.19 specific)
-          cp -v $KSU_ROOT/susfs4ksu/kernel_patches/include/linux/susfs.h include/linux/ 2>/dev/null || echo "susfs.h copy failed"
-          cp -v $KSU_ROOT/susfs4ksu/kernel_patches/include/linux/susfs_def.h include/linux/ 2>/dev/null || echo "susfs_def.h copy failed"
-          cp -v $KSU_ROOT/susfs4ksu/kernel_patches/include/linux/sus_su.h include/linux/ 2>/dev/null || echo "sus_su.h copy failed"
-          cp -v $KSU_ROOT/susfs4ksu/kernel_patches/fs/susfs.c fs/ 2>/dev/null || echo "susfs.c copy failed"
-          cp -v $KSU_ROOT/susfs4ksu/kernel_patches/fs/sus_su.c fs/ 2>/dev/null || echo "sus_su.c copy failed"
+          # Clone JackA1ltman for kernel-side SUSFS patch and source files
+          cd $KSU_ROOT
+          rm -rf susfs4ksu
+          git clone https://github.com/JackA1ltman/susfs_4.19_lastest_sussu.git susfs4ksu || true
           
-          echo "=== Verify SUSFS files ==="
-          ls -la include/linux/susfs.h include/linux/susfs_def.h fs/susfs.c 2>&1
+          cd $KSU_ROOT/private/msm-google
+          # Copy SUSFS source files to kernel
+          cp -v $KSU_ROOT/susfs4ksu/kernel_patches/include/linux/susfs.h include/linux/ 2>/dev/null || true
+          cp -v $KSU_ROOT/susfs4ksu/kernel_patches/include/linux/susfs_def.h include/linux/ 2>/dev/null || true
+          cp -v $KSU_ROOT/susfs4ksu/kernel_patches/include/linux/sus_su.h include/linux/ 2>/dev/null || true
+          cp -v $KSU_ROOT/susfs4ksu/kernel_patches/fs/susfs.c fs/ 2>/dev/null || true
+          cp -v $KSU_ROOT/susfs4ksu/kernel_patches/fs/sus_su.c fs/ 2>/dev/null || true
           
-          # Apply kernel patch from JackA1ltman (4.19 specific)
+          # Apply kernel-side SUSFS patch (modifies fs/namespace.c, fs/namei.c, etc.)
           cp $KSU_ROOT/susfs4ksu/kernel_patches/50_add_susfs_in_kernel-4.19.patch . 2>/dev/null || true
           patch -p1 --batch --no-backup-if-mismatch < 50_add_susfs_in_kernel-4.19.patch || true
-          echo "=== SUSFS kernel patches applied ==="
-
-      - name: Apply SUSFS KSU-Next patch (wodanesdag's KSU-Next legacy adapted)
-        shell: bash
-        run: |
-          cd android-kernel/private/msm-google/KernelSU-Next
-          KSU_ROOT=/home/runner/work/pixel5-kernel-build/pixel5-kernel-build/android-kernel
-          # Use wodanesdag's KSU-Next legacy patch (NOT JackA1ltman's which is for original KSU)
-          cp $KSU_ROOT/susfs4ksu-ksn/kernel_patches/KernelSU/susfs-v2.0.0_kernelsu-next-legacy.patch . 2>/dev/null || true
-          patch -p1 --batch --no-backup-if-mismatch < susfs-v2.0.0_kernelsu-next-legacy.patch || true
-          echo "=== SUSFS KSU-Next patch applied ==="
-          
-          # CRITICAL: Verify KSU_SUSFS is now in Kconfig
-          echo "=== Checking KSU_SUSFS in Kconfig ==="
-          grep -c "KSU_SUSFS" kernel/Kconfig || echo "KSU_SUSFS NOT in Kconfig!"
-          grep "KSU_SUSFS" kernel/Kconfig | head -5 || true
+          echo "=== Kernel-side SUSFS patches applied ==="
 
       - name: Apply manual hooks (file replacement + reboot.c patch)
         shell: bash
