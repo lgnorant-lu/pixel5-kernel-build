@@ -35,6 +35,11 @@ void susfs_set_hide_sus_mnts_for_all_procs(void __user *user_info) { }
 void susfs_set_i_state_on_external_dir(void __user *user_info) { }
 SUSFS_C_EOF
 
+# Add pragma to suppress fsnotify type mismatch in susfs.c (4.19 kernel API differs from v2.2.0)
+sed -i '1i #pragma clang diagnostic ignored "-Wincompatible-function-pointer-types"' fs/susfs.c
+sed -i '2i #pragma clang diagnostic ignored "-Wincompatible-pointer-types"' fs/susfs.c
+sed -i '3i #pragma clang diagnostic ignored "-Wint-conversion"' fs/susfs.c
+
 # Add compiler flags to KSU Kbuild for type mismatches
 KSU_KBUILD="drivers/kernelsu/Kbuild"
 if [ -f "$KSU_KBUILD" ]; then
