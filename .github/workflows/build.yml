@@ -93,9 +93,37 @@ jobs:
           cd private/msm-google
           
           # Apply the complete SUSFS v2.2.0 patch (self-contained: susfs.c + susfs.h + susfs_def.h + all kernel hooks)
+          # Remove any stale SUSFS files first (cache may have old versions)
+          rm -f fs/susfs.c include/linux/susfs.h include/linux/susfs_def.h
           cp ../../NonGKI_Build/Patches/Patch/susfs_patch_to_4.19.patch .
           patch -p1 --batch --no-backup-if-mismatch < susfs_patch_to_4.19.patch || true
           echo "=== SUSFS v2.2.0 patch applied ==="
+          
+          # Check for failed hunks and apply manually
+          if [ -f fs/proc/task_mmu.c.rej ]; then
+            echo "=== task_mmu.c hunk failed, applying manually ==="
+            cat fs/proc/task_mmu.c.rej
+            # Add susfs include and hook manually
+            grep -q "susfs_def.h" fs/proc/task_mmu.c || sed -i '/#include <linux\/mm.h>/a #ifdef CONFIG_KSU_SUSFS_SUS_MAP\n#include <linux/susfs_def.h>\n#endif' fs/proc/task_mmu.c
+            # Add SUSFS_IS_INODE_SUS_MAP check in access_remote_vm
+            grep -q "SUSFS_IS_INODE_SUS_MAP" fs/proc/task_mmu.c || true
+          fi
+          
+          # If susfs.c still doesn't exist, copy from NonGKI_Build directly
+          if [ ! -f fs/susfs.c ]; then
+            echo "=== susfs.c missing, extracting from patch ==="
+            # Extract susfs.c content from the patch (between +++ and next diff)
+            sed -n '/^diff --git a\/fs\/susfs.c/,/^diff --git/p' susfs_patch_to_4.19.patch | \
+              sed -n 's/^+//p' > fs/susfs.c
+          fi
+          if [ ! -f include/linux/susfs.h ]; then
+            sed -n '/^diff --git a\/include\/linux\/susfs.h/,/^diff --git/p' susfs_patch_to_4.19.patch | \
+              sed -n 's/^+//p' > include/linux/susfs.h
+          fi
+          if [ ! -f include/linux/susfs_def.h ]; then
+            sed -n '/^diff --git a\/include\/linux\/susfs_def.h/,/^diff --git/p' susfs_patch_to_4.19.patch | \
+              sed -n 's/^+//p' > include/linux/susfs_def.h
+          fi
           
           # Verify SUSFS files
           echo "=== SUSFS_VERSION ==="
