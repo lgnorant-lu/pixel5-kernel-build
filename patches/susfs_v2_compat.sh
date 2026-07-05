@@ -26,9 +26,27 @@ SUSFS_ALIAS_EOF
 # All with void __user ** signatures matching wshamroukh's supercalls.c
 # NO stubs needed!
 
-# susfs_backports.h (included at end of susfs.c) provides:
-# - susfs_is_avc_log_spoofing_enabled (bool variable)
-# - susfs_sus_ino_for_filldir64 (for readdir.c)
-# - susfs_reorder_mnt_id (4.19-specific, for setuid_hook.c)
+# Create minimal susfs_backports.h (MizProject susfs.c includes it but
+# we can't use the full version due to missing struct members)
+cat > include/linux/susfs_backports.h << 'BACKPORT_EOF'
+#ifndef _LINUX_SUSFS_BACKPORT_H
+#define _LINUX_SUSFS_BACKPORT_H
+/* Minimal stub - real implementations are in susfs_v2_compat.sh */
+#ifdef CONFIG_KSU_SUSFS
+extern bool susfs_is_avc_log_spoofing_enabled;
+#endif
+#ifdef CONFIG_KSU_SUSFS_SUS_PATH
+int susfs_sus_ino_for_filldir64(unsigned long ino) { return 0; }
+#endif
+#endif
+BACKPORT_EOF
+
+# Add stubs for functions normally in susfs_backports.h
+cat >> fs/susfs.c << 'SUSFS_STUB_EOF'
+
+/* Stubs for functions normally in susfs_backports.h */
+bool susfs_is_avc_log_spoofing_enabled = false;
+void susfs_reorder_mnt_id(void) { }
+SUSFS_STUB_EOF
 
 echo "=== SUSFS v2.0.0 (MizProject 4.19) compatibility applied ==="
