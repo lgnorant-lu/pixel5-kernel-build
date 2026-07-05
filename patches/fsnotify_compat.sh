@@ -6,6 +6,7 @@
 cat >> include/linux/susfs_def.h << 'EOF'
 
 /* Compat: fsnotify_add_inode_mark introduced in 5.9, not in 4.19 */
+#include <linux/fsnotify_backend.h>
 #ifndef fsnotify_add_inode_mark
 static inline int fsnotify_add_inode_mark_compat(struct fsnotify_mark *mark, struct inode *inode, int allow_dups)
 {
