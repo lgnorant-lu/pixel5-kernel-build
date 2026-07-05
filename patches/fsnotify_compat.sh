@@ -42,10 +42,11 @@ void susfs_try_umount_all(uid_t uid) { }
 void susfs_reorder_mnt_id(void) { }
 EOF
 
-# susfs_run_sus_path_loop may already exist as static in susfs.c, add only if missing
-if ! grep -q "^[^s].*susfs_run_sus_path_loop" fs/susfs.c 2>/dev/null; then
-    echo 'void susfs_run_sus_path_loop(void) { }' >> fs/susfs.c
-fi
+# susfs_run_sus_path_loop: v2.2.0 has static version, wshamroukh calls non-static
+# Rename static version and add non-static wrapper
+sed -i 's/static void susfs_run_sus_path_loop(void)/static void susfs_run_sus_path_loop_internal(void)/g' fs/susfs.c 2>/dev/null || true
+sed -i 's/susfs_run_sus_path_loop();/susfs_run_sus_path_loop_internal();/g' fs/susfs.c 2>/dev/null || true
+echo 'void susfs_run_sus_path_loop(void) { susfs_run_sus_path_loop_internal(); }' >> fs/susfs.c
 
 # 4. Fix task_mmu.c - ensure susfs_def.h is included (hunk #1 fails on Pixel 5 kernel)
 if ! grep -q "susfs_def.h" fs/proc/task_mmu.c 2>/dev/null; then
