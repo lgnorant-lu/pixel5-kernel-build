@@ -35,7 +35,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: android-kernel
-          key: kernel-${{ env.KERNEL_BRANCH }}-v2
+          key: kernel-${{ env.KERNEL_BRANCH }}-v3
           restore-keys: |
             kernel-${{ env.KERNEL_BRANCH }}-
 
@@ -61,7 +61,13 @@ jobs:
       - name: Modify SUBLEVEL
         run: |
           cd android-kernel/private/msm-google
+          # Clean ALL previous build artifacts and patches from cache
           rm -rf out/ AnyKernel3/ KernelSU-Next/ drivers/kernelsu/
+          # Restore kernel source files to original state (undo previous patches)
+          git checkout -- . 2>/dev/null || true
+          # Clean any patch reject files
+          find . -name "*.rej" -delete 2>/dev/null || true
+          find . -name "*.orig" -delete 2>/dev/null || true
           sed -i 's/SUBLEVEL = .*/SUBLEVEL = ${{ env.SUBLEVEL }}/' Makefile
           grep SUBLEVEL Makefile
 
@@ -99,31 +105,11 @@ jobs:
           patch -p1 --batch --no-backup-if-mismatch < susfs_patch_to_4.19.patch || true
           echo "=== SUSFS v2.2.0 patch applied ==="
           
-          # Check for failed hunks and apply manually
-          if [ -f fs/proc/task_mmu.c.rej ]; then
-            echo "=== task_mmu.c hunk failed, applying manually ==="
-            cat fs/proc/task_mmu.c.rej
-            # Add susfs include and hook manually
-            grep -q "susfs_def.h" fs/proc/task_mmu.c || sed -i '/#include <linux\/mm.h>/a #ifdef CONFIG_KSU_SUSFS_SUS_MAP\n#include <linux/susfs_def.h>\n#endif' fs/proc/task_mmu.c
-            # Add SUSFS_IS_INODE_SUS_MAP check in access_remote_vm
-            grep -q "SUSFS_IS_INODE_SUS_MAP" fs/proc/task_mmu.c || true
-          fi
-          
-          # If susfs.c still doesn't exist, copy from NonGKI_Build directly
-          if [ ! -f fs/susfs.c ]; then
-            echo "=== susfs.c missing, extracting from patch ==="
-            # Extract susfs.c content from the patch (between +++ and next diff)
-            sed -n '/^diff --git a\/fs\/susfs.c/,/^diff --git/p' susfs_patch_to_4.19.patch | \
-              sed -n 's/^+//p' > fs/susfs.c
-          fi
-          if [ ! -f include/linux/susfs.h ]; then
-            sed -n '/^diff --git a\/include\/linux\/susfs.h/,/^diff --git/p' susfs_patch_to_4.19.patch | \
-              sed -n 's/^+//p' > include/linux/susfs.h
-          fi
-          if [ ! -f include/linux/susfs_def.h ]; then
-            sed -n '/^diff --git a\/include\/linux\/susfs_def.h/,/^diff --git/p' susfs_patch_to_4.19.patch | \
-              sed -n 's/^+//p' > include/linux/susfs_def.h
-          fi
+          # Verify SUSFS files were created
+          echo "=== Verify ==="
+          ls -la fs/susfs.c include/linux/susfs.h include/linux/susfs_def.h 2>&1
+          grep "SUSFS_VERSION" include/linux/susfs.h || echo "WARNING: susfs.h missing!"
+          grep "SUSFS_MAGIC" include/linux/susfs_def.h || echo "WARNING: susfs_def.h missing!"
           
           # Verify SUSFS files
           echo "=== SUSFS_VERSION ==="
@@ -151,47 +137,56 @@ jobs:
           grep -n 'ksu_handle' fs/stat.c | head -5
           grep -n 'ksu_handle_sys_reboot' kernel/reboot.c | head -3
 
-      - name: Inject KSU + SUSFS config into build.config
+      - name: Inject KSU + SUSFS config into defconfig and build.config
         shell: bash
         run: |
           cd android-kernel/private/msm-google
-          CONFIG_FILE="build.config.redbull.vintf"
-          if [ ! -f "$CONFIG_FILE" ]; then
-            echo "ERROR: $CONFIG_FILE not found!"
-            find . -name "build.config.redbull*" 2>/dev/null
-            exit 1
+          
+          # Method 1: Write config directly to defconfig (JackA1ltman's approach)
+          DEFCONFIG="arch/arm64/configs/vendor/redbull_GKI.config"
+          if [ -f "$DEFCONFIG" ]; then
+            echo "" >> "$DEFCONFIG"
+            echo "CONFIG_KSU=y" >> "$DEFCONFIG"
+            echo "CONFIG_KSU_MANUAL_HOOK=y" >> "$DEFCONFIG"
+            echo "CONFIG_KSU_SUSFS=y" >> "$DEFCONFIG"
+            echo "CONFIG_KSU_SUSFS_SUS_PATH=y" >> "$DEFCONFIG"
+            echo "CONFIG_KSU_SUSFS_SUS_MOUNT=y" >> "$DEFCONFIG"
+            echo "CONFIG_KSU_SUSFS_SUS_KSTAT=y" >> "$DEFCONFIG"
+            echo "CONFIG_KSU_SUSFS_TRY_UMOUNT=y" >> "$DEFCONFIG"
+            echo "CONFIG_KSU_SUSFS_SPOOF_UNAME=y" >> "$DEFCONFIG"
+            echo "CONFIG_KSU_SUSFS_ENABLE_LOG=y" >> "$DEFCONFIG"
+            echo "CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y" >> "$DEFCONFIG"
+            echo "CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y" >> "$DEFCONFIG"
+            echo "CONFIG_KSU_SUSFS_OPEN_REDIRECT=y" >> "$DEFCONFIG"
+            echo "CONFIG_KSU_SUSFS_SUS_MAP=y" >> "$DEFCONFIG"
+            echo "=== Config written to $DEFCONFIG ==="
+          else
+            echo "WARNING: $DEFCONFIG not found"
+            find arch/arm64/configs -name "*redbull*" | head -5
           fi
-          python3 << 'PYEOF'
+          
+          # Method 2: Also inject into build.config update_config (belt and suspenders)
+          CONFIG_FILE="build.config.redbull.vintf"
+          if [ -f "$CONFIG_FILE" ]; then
+            python3 << 'PYEOF'
           with open('build.config.redbull.vintf', 'r') as f:
               content = f.read()
           inject = """
-              # KSU + SUSFS config injection (after olddefconfig)
               ${KERNEL_DIR}/scripts/config --file ${OUT_DIR}/.config \\
-              -e KSU \\
-              -e KSU_MANUAL_HOOK \\
-              -e KSU_SUSFS \\
-              -e KSU_SUSFS_SUS_PATH \\
-              -e KSU_SUSFS_SUS_MOUNT \\
-              -e KSU_SUSFS_SUS_KSTAT \\
-              -e KSU_SUSFS_TRY_UMOUNT \\
-              -e KSU_SUSFS_SPOOF_UNAME \\
-              -e KSU_SUSFS_ENABLE_LOG \\
-              -e KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS \\
-              -e KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG \\
-              -e KSU_SUSFS_OPEN_REDIRECT \\
-              -e KSU_SUSFS_SUS_MAP
-              # Run olddefconfig again to resolve dependencies
+              -e KSU -e KSU_MANUAL_HOOK -e KSU_SUSFS \\
+              -e KSU_SUSFS_SUS_PATH -e KSU_SUSFS_SUS_MOUNT -e KSU_SUSFS_SUS_KSTAT \\
+              -e KSU_SUSFS_TRY_UMOUNT -e KSU_SUSFS_SPOOF_UNAME -e KSU_SUSFS_ENABLE_LOG \\
+              -e KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS -e KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG \\
+              -e KSU_SUSFS_OPEN_REDIRECT -e KSU_SUSFS_SUS_MAP
               (cd ${OUT_DIR} && \\
               make O=${OUT_DIR} CLANG_TRIPLE=${CLANG_TRIPLE} CROSS_COMPILE=${CROSS_COMPILE} "${TOOL_ARGS[@]}" ${MAKE_ARGS} olddefconfig)
           """
-          content = content.replace(
-              'olddefconfig)\n}',
-              'olddefconfig)\n' + inject + '\n}'
-          )
+          content = content.replace('olddefconfig)\n}', 'olddefconfig)\n' + inject + '\n}')
           with open('build.config.redbull.vintf', 'w') as f:
               f.write(content)
-          print("=== Config injected successfully ===")
+          print("=== Config also injected into build.config ===")
           PYEOF
+          fi
 
       - name: Patch KSU Kbuild to skip hook check during mrproper
         run: |
