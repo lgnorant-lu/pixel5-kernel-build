@@ -112,19 +112,25 @@ jobs:
           
           # Clone JackA1ltman for kernel-side SUSFS patch (50_add_susfs_in_kernel-4.19.patch)
           cd $KSU_ROOT
-          rm -rf susfs4ksu manipvlator-kernel
+          rm -rf susfs4ksu manipvlator-kernel miz-kernel
           git clone https://github.com/JackA1ltman/susfs_4.19_lastest_sussu.git susfs4ksu || true
           
-          # Clone manipvlator for SUSFS v2.2.0 source files (supercall ABI, matches wshamroukh)
-          git clone --depth=1 https://github.com/manipvlator/los_kernel_xiaomi_sm6150 manipvlator-kernel || true
+          # Clone MizProject for SUSFS v2.0.0 source files (4.19 kernel, NO fsnotify, supercall ABI)
+          # MizProject is 4.19.162 kernel with SUSFS v2.0.0 - perfect match for our 4.19.278
+          git clone --depth=1 https://github.com/MizProject/MizKernel-Galaxy-A12s-Refresh miz-kernel || true
           
           cd $KSU_ROOT/private/msm-google
-          # Use v2.2.0 source files from manipvlator (supercall ABI matching wshamroukh KSU)
-          cp -v $KSU_ROOT/manipvlator-kernel/include/linux/susfs.h include/linux/ 2>/dev/null || true
-          cp -v $KSU_ROOT/manipvlator-kernel/include/linux/susfs_def.h include/linux/ 2>/dev/null || true
-          cp -v $KSU_ROOT/manipvlator-kernel/fs/susfs.c fs/ 2>/dev/null || true
+          # Use v2.0.0 source files from MizProject (4.19 native, no fsnotify issues)
+          cp -v $KSU_ROOT/miz-kernel/include/linux/susfs.h include/linux/ 2>/dev/null || true
+          cp -v $KSU_ROOT/miz-kernel/include/linux/susfs_def.h include/linux/ 2>/dev/null || true
+          cp -v $KSU_ROOT/miz-kernel/fs/susfs.c fs/ 2>/dev/null || true
           
-          # Copy sus_su from JackA1ltman (not in manipvlator)
+          # Copy susfs_backports.h (provides 4.19-specific implementations)
+          cp -v $KSU_ROOT/miz-kernel/include/linux/susfs_backports.h include/linux/ 2>/dev/null || true
+          # Include susfs_backports.h at end of susfs.c
+          echo '#include <linux/susfs_backports.h>' >> fs/susfs.c
+          
+          # Copy sus_su from JackA1ltman (not in MizProject)
           cp -v $KSU_ROOT/susfs4ksu/kernel_patches/include/linux/sus_su.h include/linux/ 2>/dev/null || true
           cp -v $KSU_ROOT/susfs4ksu/kernel_patches/fs/sus_su.c fs/ 2>/dev/null || true
           
