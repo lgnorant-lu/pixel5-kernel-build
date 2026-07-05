@@ -43,6 +43,11 @@ void susfs_sus_ino_for_show_map_vma(unsigned long ino, dev_t *out_dev, unsigned 
 }
 struct filename* susfs_get_redirected_path(unsigned long ino) { return NULL; }
 void susfs_sus_ino_for_filldir64(unsigned long ino) { }
+
+/* v2.0.0 functions used by wshamroukh KSU code but not in manipvlator v2.2.0 */
+void susfs_try_umount_all(uid_t uid) { }
+bool susfs_is_avc_log_spoofing_enabled(void) { return false; }
+void susfs_reorder_mnt_id(void) { }
 SUSFS_C_EOF
 
 # Add pragma to suppress fsnotify type mismatch in susfs.c (4.19 kernel API differs from v2.2.0)
