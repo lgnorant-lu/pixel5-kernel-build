@@ -255,6 +255,8 @@ jobs:
       - name: Build kernel
         run: |
           cd android-kernel
+          # Clean previous build output to avoid cache issues
+          rm -rf out/ AnyKernel3/
           LTO=thin ./private/msm-google/build_redbull-gki.sh
 
       - name: Verify build output
@@ -268,6 +270,7 @@ jobs:
       - name: Setup AnyKernel3
         run: |
           cd android-kernel
+          rm -rf AnyKernel3
           git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git
           
           # Configure AnyKernel3 for Pixel 5 (2SI, A/B slot, with modules)
