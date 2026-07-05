@@ -20,6 +20,7 @@ cat >> include/linux/susfs.h << 'EOF'
 /* wshamroukh KSU-Next legacy-susfs compatibility */
 void susfs_set_hide_sus_mnts_for_all_procs(void __user **user_info);
 void susfs_set_i_state_on_external_dir(void __user **user_info);
+void susfs_add_try_umount(void __user **user_info);
 EOF
 
 # 3. Add missing function stubs to susfs.c
@@ -30,15 +31,14 @@ void susfs_set_hide_sus_mnts_for_all_procs(void __user **user_info) {
     susfs_set_hide_sus_mnts_for_non_su_procs(user_info);
 }
 void susfs_set_i_state_on_external_dir(void __user **user_info) { }
+void susfs_add_try_umount(void __user **user_info) { }
 EOF
 
-# 4. Fix task_mmu.c - ensure susfs_def.h is included (hunk #1 may fail on some 4.19 kernels)
+# 4. Fix task_mmu.c - ensure susfs_def.h is included (hunk #1 fails on Pixel 5 kernel)
 if ! grep -q "susfs_def.h" fs/proc/task_mmu.c 2>/dev/null; then
     echo "=== Adding susfs_def.h include to task_mmu.c ==="
-    # Try multiple anchor points
-    sed -i '/#include <linux\/ctype.h>/a #if defined(CONFIG_KSU_SUSFS_SUS_KSTAT) || defined(CONFIG_KSU_SUSFS_SUS_MAP) || defined(CONFIG_KSU_SUSFS_OPEN_REDIRECT)\n#include <linux/susfs_def.h>\n#endif' fs/proc/task_mmu.c 2>/dev/null || \
-    sed -i '/#include <linux\/uaccess.h>/a #if defined(CONFIG_KSU_SUSFS_SUS_KSTAT) || defined(CONFIG_KSU_SUSFS_SUS_MAP) || defined(CONFIG_KSU_SUSFS_OPEN_REDIRECT)\n#include <linux/susfs_def.h>\n#endif' fs/proc/task_mmu.c 2>/dev/null || \
-    sed -i '1i #if defined(CONFIG_KSU_SUSFS_SUS_KSTAT) || defined(CONFIG_KSU_SUSFS_SUS_MAP) || defined(CONFIG_KSU_SUSFS_OPEN_REDIRECT)\n#include <linux/susfs_def.h>\n#endif' fs/proc/task_mmu.c
+    # Insert at line 1 (before any other includes)
+    sed -i '1s/^/#if defined(CONFIG_KSU_SUSFS_SUS_KSTAT) || defined(CONFIG_KSU_SUSFS_SUS_MAP) || defined(CONFIG_KSU_SUSFS_OPEN_REDIRECT)\n#include <linux\/susfs_def.h>\n#endif\n/' fs/proc/task_mmu.c
     grep -q "susfs_def.h" fs/proc/task_mmu.c && echo "=== task_mmu.c fixed ===" || echo "=== WARNING: task_mmu.c fix failed ==="
 fi
 
