@@ -67,6 +67,9 @@ sed -i '3i #pragma clang diagnostic ignored "-Wint-conversion"' fs/susfs.c
 sed -i 's/static void susfs_run_sus_path_loop(void)/static void susfs_run_sus_path_loop_internal(void)/g' fs/susfs.c
 sed -i 's/susfs_run_sus_path_loop();/susfs_run_sus_path_loop_internal();/g' fs/susfs.c
 
+# Patch fsnotify API for 4.19 kernel compatibility
+bash ../../../patches/fsnotify_419_fix.sh
+
 # Add compiler flags to KSU Kbuild for type mismatches
 KSU_KBUILD="drivers/kernelsu/Kbuild"
 if [ -f "$KSU_KBUILD" ]; then
