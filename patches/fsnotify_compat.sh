@@ -42,4 +42,18 @@ if ! grep -q "susfs_def.h" fs/proc/task_mmu.c 2>/dev/null; then
     grep -q "susfs_def.h" fs/proc/task_mmu.c && echo "=== task_mmu.c fixed ===" || echo "=== WARNING: task_mmu.c fix failed ==="
 fi
 
+# 5. Fix open.c - ensure susfs_def.h is included (normal_patches.sh may have overwritten it)
+if ! grep -q "susfs_def.h" fs/open.c 2>/dev/null; then
+    echo "=== Adding susfs_def.h include to open.c ==="
+    sed -i '1s/^/#ifdef CONFIG_KSU_SUSFS\n#include <linux\/susfs_def.h>\n#endif\n/' fs/open.c
+fi
+
+# 6. Fix any other file that uses SUSFS_IS_INODE_* macros but missing susfs_def.h include
+for f in fs/namei.c fs/namespace.c fs/stat.c fs/readdir.c fs/statfs.c fs/proc/fd.c fs/proc_namespace.c fs/notify/fdinfo.c; do
+    if grep -q "SUSFS_IS_INODE\|susfs_def.h" "$f" 2>/dev/null && ! grep -q "susfs_def.h" "$f" 2>/dev/null; then
+        echo "=== Adding susfs_def.h to $f ==="
+        sed -i '1s/^/#ifdef CONFIG_KSU_SUSFS\n#include <linux\/susfs_def.h>\n#endif\n/' "$f"
+    fi
+done
+
 echo "=== All compat fixes applied ==="
