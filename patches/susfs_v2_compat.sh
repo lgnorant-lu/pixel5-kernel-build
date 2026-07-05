@@ -1,9 +1,8 @@
 #!/bin/bash
 # Add compatibility aliases for SUSFS v2.0.0 (MizProject) + wshamroukh KSU
-# MizProject v2.0.0 is 4.19 native but may miss some v2.0.0 functions
-# that wshamroukh's KSU code references
+# MizProject v2.0.0 already has all functions, only need constant aliases
 
-# Add compatibility constant aliases
+# Add compatibility constant aliases for JackA1ltman's 50_add_susfs_in_kernel-4.19.patch
 cat >> include/linux/susfs_def.h << 'SUSFS_ALIAS_EOF'
 
 /* Compatibility aliases for JackA1ltman's 50_add_susfs_in_kernel-4.19.patch */
@@ -12,38 +11,24 @@ cat >> include/linux/susfs_def.h << 'SUSFS_ALIAS_EOF'
 #define INODE_STATE_SUS_KSTAT AS_FLAGS_SUS_KSTAT
 #define INODE_STATE_OPEN_REDIRECT AS_FLAGS_OPEN_REDIRECT
 #define INODE_STATE_SUS_MAP AS_FLAGS_SUS_MAP
-#define TASK_STRUCT_NON_ROOT_USER_APP_PROC TIF_PROC_UMOUNTED
 SUSFS_ALIAS_EOF
 
-# Add missing function declarations to susfs.h
-cat >> include/linux/susfs.h << 'SUSFS_H_EOF'
+# Note: MizProject v2.0.0 susfs.c already has ALL functions that wshamroukh references:
+# - susfs_add_sus_path, susfs_add_sus_path_loop
+# - susfs_set_hide_sus_mnts_for_all_procs, susfs_set_i_state_on_external_dir
+# - susfs_add_sus_kstat, susfs_update_sus_kstat
+# - susfs_add_try_umount, susfs_set_uname
+# - susfs_enable_log, susfs_set_cmdline_or_bootconfig
+# - susfs_add_open_redirect, susfs_add_sus_map
+# - susfs_set_avc_log_spoofing, susfs_get_enabled_features
+# - susfs_show_variant, susfs_show_version
+# - susfs_try_umount_all
+# All with void __user ** signatures matching wshamroukh's supercalls.c
+# NO stubs needed!
 
-/* v2.0.0 functions used by wshamroukh but may not be in MizProject */
-void susfs_set_hide_sus_mnts_for_all_procs(void __user *user_info);
-void susfs_set_i_state_on_external_dir(void __user *user_info);
-void susfs_add_sus_path_loop(void __user *user_info);
-void susfs_add_sus_map(void __user *user_info);
-SUSFS_H_EOF
-
-# Add missing function stubs to susfs.c
-cat >> fs/susfs.c << 'SUSFS_C_EOF'
-
-/* Stubs for functions referenced by wshamroukh KSU but not in MizProject v2.0.0 */
-void susfs_set_hide_sus_mnts_for_all_procs(void __user *user_info) { }
-void susfs_set_i_state_on_external_dir(void __user *user_info) { }
-void susfs_add_sus_path_loop(void __user *user_info) { }
-void susfs_add_sus_map(void __user *user_info) { }
-void susfs_try_umount_all(uid_t uid) { }
-SUSFS_C_EOF
-
-# Add -Wno-incompatible-pointer-types to KSU Kbuild
-KSU_KBUILD="drivers/kernelsu/Kbuild"
-if [ -f "$KSU_KBUILD" ]; then
-    REAL_KBUILD=$(readlink -f "$KSU_KBUILD")
-    if ! grep -q "Wno-incompatible-pointer-types" "$REAL_KBUILD"; then
-        sed -i 's/-Wno-declaration-after-statement/-Wno-declaration-after-statement -Wno-incompatible-pointer-types/g' "$REAL_KBUILD"
-        echo "=== Added compiler flags to Kbuild ==="
-    fi
-fi
+# susfs_backports.h (included at end of susfs.c) provides:
+# - susfs_is_avc_log_spoofing_enabled (bool variable)
+# - susfs_sus_ino_for_filldir64 (for readdir.c)
+# - susfs_reorder_mnt_id (4.19-specific, for setuid_hook.c)
 
 echo "=== SUSFS v2.0.0 (MizProject 4.19) compatibility applied ==="
