@@ -150,41 +150,50 @@ jobs:
           echo "--- stat.c ---"
           grep -n 'ksu_handle_stat' fs/stat.c | head -3
 
-      - name: Add KSU + SUSFS config fragment
+      - name: Inject KSU + SUSFS config into build.config
         run: |
           cd android-kernel/private/msm-google
           
-          # Create a config fragment that will be appended
-          cat > ksu_susfs.fragment << 'EOF'
-          CONFIG_KSU=y
-          CONFIG_KSU_MANUAL_HOOK=y
-          CONFIG_KSU_SUSFS=y
-          CONFIG_KSU_SUSFS_SUS_PATH=y
-          CONFIG_KSU_SUSFS_SUS_MOUNT=y
-          CONFIG_KSU_SUSFS_SUS_KSTAT=y
-          CONFIG_KSU_SUSFS_TRY_UMOUNT=y
-          CONFIG_KSU_SUSFS_SPOOF_UNAME=y
-          CONFIG_KSU_SUSFS_ENABLE_LOG=y
-          CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y
-          CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y
-          CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
-          CONFIG_KSU_SUSFS_SUS_MAP=y
-          EOF
+          # The build_redbull-gki.sh uses build.config.redbull.vintf which has
+          # POST_DEFCONFIG_CMDS="check_defconfig && update_config"
+          # The update_config() function runs scripts/config after defconfig.
+          # We need to inject our KSU+SUSFS config options INTO update_config().
           
-          # Merge fragment into the build config
-          # build_redbull-gki.sh uses arch/arm64/configs/vendor/redbull_GKI.config
-          CONFIG_FILE="arch/arm64/configs/vendor/redbull_GKI.config"
-          if [ -f "$CONFIG_FILE" ]; then
-            echo "" >> "$CONFIG_FILE"
-            cat ksu_susfs.fragment >> "$CONFIG_FILE"
-            echo "=== Config merged into $CONFIG_FILE ==="
-            tail -20 "$CONFIG_FILE"
-          else
-            echo "WARNING: $CONFIG_FILE not found, searching for defconfig..."
-            find arch/arm64/configs -name "*redbull*" -o -name "*redfin*" | head -10
-            # Try to find the main config
-            find . -name "build_redbull-gki.sh" -exec cat {} \; | grep -i "config\|defconfig" | head -10
+          CONFIG_FILE="build.config.redbull.vintf"
+          if [ ! -f "$CONFIG_FILE" ]; then
+            echo "ERROR: $CONFIG_FILE not found!"
+            find . -name "build.config.redbull*" 2>/dev/null
+            exit 1
           fi
+          
+          echo "=== Original update_config function ==="
+          grep -A 10 "function update_config" "$CONFIG_FILE"
+          
+          # Inject our config options into update_config() by appending to the scripts/config line
+          # The function uses: ${KERNEL_DIR}/scripts/config --file ${OUT_DIR}/.config \
+          # We add our -e flags after the existing ones, before the olddefconfig
+          sed -i '/function update_config/,/^}/ {
+            /olddefconfig)/i \
+          \\t${KERNEL_DIR}/scripts/config --file ${OUT_DIR}/.config \\\n\
+          \t-e KSU \\\n\
+          \t-e KSU_MANUAL_HOOK \\\n\
+          \t-e KSU_SUSFS \\\n\
+          \t-e KSU_SUSFS_SUS_PATH \\\n\
+          \t-e KSU_SUSFS_SUS_MOUNT \\\n\
+          \t-e KSU_SUSFS_SUS_KSTAT \\\n\
+          \t-e KSU_SUSFS_TRY_UMOUNT \\\n\
+          \t-e KSU_SUSFS_SPOOF_UNAME \\\n\
+          \t-e KSU_SUSFS_ENABLE_LOG \\\n\
+          \t-e KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS \\\n\
+          \t-e KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG \\\n\
+          \t-e KSU_SUSFS_OPEN_REDIRECT \\\n\
+          \t-e KSU_SUSFS_SUS_MAP
+          }' "$CONFIG_FILE"
+          
+          echo "=== Modified update_config function ==="
+          grep -A 30 "function update_config" "$CONFIG_FILE"
+          
+          echo "=== Config injection complete ==="
 
       - name: Patch KSU Kbuild to skip hook check during mrproper
         run: |
