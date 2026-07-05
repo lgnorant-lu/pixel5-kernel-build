@@ -37,7 +37,15 @@ void susfs_set_hide_sus_mnts_for_all_procs(void __user **user_info) {
 }
 void susfs_set_i_state_on_external_dir(void __user **user_info) { }
 void susfs_add_try_umount(void __user **user_info) { }
+void susfs_try_umount(uid_t uid) { }
+void susfs_try_umount_all(uid_t uid) { }
+void susfs_reorder_mnt_id(void) { }
 EOF
+
+# susfs_run_sus_path_loop may already exist as static in susfs.c, add only if missing
+if ! grep -q "^[^s].*susfs_run_sus_path_loop" fs/susfs.c 2>/dev/null; then
+    echo 'void susfs_run_sus_path_loop(void) { }' >> fs/susfs.c
+fi
 
 # 4. Fix task_mmu.c - ensure susfs_def.h is included (hunk #1 fails on Pixel 5 kernel)
 if ! grep -q "susfs_def.h" fs/proc/task_mmu.c 2>/dev/null; then
