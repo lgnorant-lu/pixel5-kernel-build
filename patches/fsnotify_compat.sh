@@ -2,12 +2,16 @@
 # Compat fixes for JackA1ltman v2.2.0 patch + wshamroukh KSU-Next legacy-susfs
 
 # 1. fsnotify_add_inode_mark compat (5.9+ function, 4.19 doesn't have it)
+# 4.19 fsnotify_add_mark signature: (mark, connp, type, allow_dups)
 cat >> include/linux/susfs_def.h << 'EOF'
 
 /* Compat: fsnotify_add_inode_mark introduced in 5.9, not in 4.19 */
 #ifndef fsnotify_add_inode_mark
-#define fsnotify_add_inode_mark(mark, inode, allow_dups) \
-        fsnotify_add_mark(mark, &inode->i_fsnotify_marks, FSNOTIFY_OBJ_TYPE_INODE, allow_dups)
+static inline int fsnotify_add_inode_mark_compat(struct fsnotify_mark *mark, struct inode *inode, int allow_dups)
+{
+    return fsnotify_add_mark(mark, &inode->i_fsnotify_marks, FSNOTIFY_OBJ_TYPE_INODE, allow_dups);
+}
+#define fsnotify_add_inode_mark(mark, inode, allow_dups) fsnotify_add_inode_mark_compat(mark, inode, allow_dups)
 #endif
 
 /* Alias: wshamroukh uses _ALL_PROCS, JackA1ltman uses _NON_SU_PROCS */
