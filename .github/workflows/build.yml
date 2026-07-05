@@ -114,35 +114,20 @@ jobs:
           patch -p1 --batch --no-backup-if-mismatch < 50_add_susfs_in_kernel-4.19.patch || true
           echo "=== Kernel-side SUSFS patches applied ==="
 
-      - name: Apply manual hooks (file replacement + reboot.c patch)
+      - name: Apply manual hooks (JackA1ltman's normal_patches.sh)
         shell: bash
         run: |
           cd android-kernel/private/msm-google
-          
-          # Use CZB666's pre-modified files (correct hook placement for redbull 4.19)
-          cp ../../../patches/exec.c fs/exec.c
-          cp ../../../patches/open.c fs/open.c
-          cp ../../../patches/read_write.c fs/read_write.c
-          cp ../../../patches/stat.c fs/stat.c
-          
-          echo "=== File replacement done ==="
-          grep -c 'ksu_handle' fs/exec.c fs/open.c fs/read_write.c fs/stat.c
-          
-          # For kernel/reboot.c - use Python script for proper hook insertion
+          cp ../../../patches/normal_patches.sh .
+          chmod +x normal_patches.sh
+          bash normal_patches.sh
           python3 ../../../patches/patch_reboot.py kernel/reboot.c
-          
-          # Verify all hooks
-          echo "=== Verification ==="
-          echo "--- reboot.c ---"
-          grep -n 'ksu_handle_sys_reboot' kernel/reboot.c || echo "FAILED!"
-          echo "--- exec.c ---"
-          grep -n 'ksu_handle_execveat' fs/exec.c | head -3
-          echo "--- open.c ---"
-          grep -n 'ksu_handle_faccessat' fs/open.c | head -3
-          echo "--- read_write.c ---"
-          grep -n 'ksu_handle_vfs_read' fs/read_write.c | head -3
-          echo "--- stat.c ---"
-          grep -n 'ksu_handle_stat' fs/stat.c | head -3
+          echo "=== Manual hooks applied ==="
+          grep -n 'ksu_handle' fs/exec.c | head -5
+          grep -n 'ksu_handle' fs/open.c | head -5
+          grep -n 'ksu_handle' fs/read_write.c | head -5
+          grep -n 'ksu_handle' fs/stat.c | head -5
+          grep -n 'ksu_handle_sys_reboot' kernel/reboot.c | head -3
 
       - name: Inject KSU + SUSFS config into build.config
         shell: bash
