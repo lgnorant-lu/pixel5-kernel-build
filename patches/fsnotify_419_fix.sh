@@ -16,8 +16,10 @@ sed -i '/int susfs_handle_sdcard_inode_event/,/^{/{
 
 # 3. Fix fsnotify_add_mark call (5.x -> 4.19)
 # 5.x: fsnotify_add_mark(m, inode, NULL, 0)
-# 4.19: fsnotify_add_mark(mark, inode, group) or fsnotify_add_mark_locked
-sed -i 's/fsnotify_add_mark(m, inode, NULL, 0)/fsnotify_add_mark(m, inode, g)/g' fs/susfs.c
+# 4.19: fsnotify_add_mark(mark, &inode->i_fsnotify_marks, FSNOTIFY_OBJ_TYPE_INODE, 0)
+sed -i 's/fsnotify_add_mark(m, inode, NULL, 0)/fsnotify_add_mark(m, \&inode->i_fsnotify_marks, FSNOTIFY_OBJ_TYPE_INODE, 0)/g' fs/susfs.c
+# Also fix any other variant
+sed -i 's/fsnotify_add_mark(m, inode, g)/fsnotify_add_mark(m, \&inode->i_fsnotify_marks, FSNOTIFY_OBJ_TYPE_INODE, 0)/g' fs/susfs.c
 
 # 4. Fix any remaining 5.x-only parameters in the event handler body
 # The handler body references data_type and iter_info which don't exist in 4.19
