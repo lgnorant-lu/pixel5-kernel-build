@@ -123,12 +123,18 @@ jobs:
           cp -v $KSU_ROOT/susfs4ksu/kernel_patches/fs/susfs.c fs/ 2>/dev/null || true
           cp -v $KSU_ROOT/susfs4ksu/kernel_patches/fs/sus_su.c fs/ 2>/dev/null || true
           
-          # ALSO copy susfs_def.h from KSU-Next (has susfs_set_current_proc_umounted)
-          cp -v $KSU_ROOT/private/msm-google/KernelSU-Next/kernel/include/linux/susfs_def.h include/linux/ 2>/dev/null || true
+          # ALSO ensure susfs_def.h has susfs_set_current_proc_umounted (added in newer SUSFS versions)
+          if ! grep -q "susfs_set_current_proc_umounted" include/linux/susfs_def.h 2>/dev/null; then
+            echo "=== Adding susfs_set_current_proc_umounted to susfs_def.h ==="
+            echo "" >> include/linux/susfs_def.h
+            echo "#ifdef CONFIG_KSU_SUSFS" >> include/linux/susfs_def.h
+            echo "static inline void susfs_set_current_proc_umounted(void) { }" >> include/linux/susfs_def.h
+            echo "#endif" >> include/linux/susfs_def.h
+          fi
           
           # Verify the function exists
           echo "=== Checking susfs_set_current_proc_umounted ==="
-          grep "susfs_set_current_proc_umounted" include/linux/susfs_def.h || echo "NOT in susfs_def.h!"
+          grep "susfs_set_current_proc_umounted" include/linux/susfs_def.h || echo "STILL NOT in susfs_def.h!"
           
           # Apply kernel-side SUSFS patch (modifies fs/namespace.c, fs/namei.c, etc.)
           cp $KSU_ROOT/susfs4ksu/kernel_patches/50_add_susfs_in_kernel-4.19.patch . 2>/dev/null || true
