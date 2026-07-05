@@ -37,6 +37,7 @@ void susfs_set_avc_log_spoofing(void __user *user_info);
 void susfs_get_enabled_features(void __user *user_info);
 void susfs_show_variant(void __user *user_info);
 void susfs_show_version(void __user *user_info);
+void susfs_add_sus_map(void __user *user_info);
 SUSFS_H_EOF
 
 cat >> fs/susfs.c << 'SUSFS_C_EOF'
@@ -50,7 +51,19 @@ void susfs_set_avc_log_spoofing(void __user *user_info) { }
 void susfs_get_enabled_features(void __user *user_info) { }
 void susfs_show_variant(void __user *user_info) { }
 void susfs_show_version(void __user *user_info) { }
+void susfs_add_sus_map(void __user *user_info) { }
 SUSFS_C_EOF
+
+# Add CMD_SUSFS_ADD_SUS_MAP to susfs_def.h
+echo "#define CMD_SUSFS_ADD_SUS_MAP 0x60020" >> include/linux/susfs_def.h
+
+# Add -Wno-incompatible-pointer-types to KSU Kbuild to handle void** -> struct* casts
+KSU_KBUILD="drivers/kernelsu/Kbuild"
+if [ -f "$KSU_KBUILD" ]; then
+    REAL_KBUILD=$(readlink -f "$KSU_KBUILD")
+    sed -i 's/-Wno-declaration-after-statement/-Wno-declaration-after-statement -Wno-incompatible-pointer-types/g' "$REAL_KBUILD"
+    echo "=== Added -Wno-incompatible-pointer-types to Kbuild ==="
+fi
 
 echo "=== SUSFS v2.0.0 compatibility patches applied ==="
 
