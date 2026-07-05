@@ -123,6 +123,13 @@ jobs:
           cp -v $KSU_ROOT/susfs4ksu/kernel_patches/fs/susfs.c fs/ 2>/dev/null || true
           cp -v $KSU_ROOT/susfs4ksu/kernel_patches/fs/sus_su.c fs/ 2>/dev/null || true
           
+          # ALSO copy susfs_def.h from KSU-Next (has susfs_set_current_proc_umounted)
+          cp -v $KSU_ROOT/private/msm-google/KernelSU-Next/kernel/include/linux/susfs_def.h include/linux/ 2>/dev/null || true
+          
+          # Verify the function exists
+          echo "=== Checking susfs_set_current_proc_umounted ==="
+          grep "susfs_set_current_proc_umounted" include/linux/susfs_def.h || echo "NOT in susfs_def.h!"
+          
           # Apply kernel-side SUSFS patch (modifies fs/namespace.c, fs/namei.c, etc.)
           cp $KSU_ROOT/susfs4ksu/kernel_patches/50_add_susfs_in_kernel-4.19.patch . 2>/dev/null || true
           patch -p1 --batch --no-backup-if-mismatch < 50_add_susfs_in_kernel-4.19.patch || true
