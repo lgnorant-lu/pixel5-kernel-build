@@ -105,19 +105,8 @@ jobs:
           echo "=== susfs.c exists ==="
           ls -la fs/susfs.c || echo "susfs.c NOT found!"
           
-          # Preemptive compat: define fsnotify_add_inode_mark if not exists (4.19 may not have it)
-          # The patch uses #if LINUX_VERSION_CODE >= 4.18.0 which includes 4.19,
-          # but fsnotify_add_inode_mark was actually introduced in 5.9
-          # Add a wrapper define to susfs_def.h
-          cat >> include/linux/susfs_def.h << 'FSNOTIFY_COMPAT_EOF'
-
-/* Compat: fsnotify_add_inode_mark introduced in 5.9, not in 4.19 */
-#ifndef fsnotify_add_inode_mark
-#define fsnotify_add_inode_mark(mark, inode, allow_dups) \
-        fsnotify_add_mark(mark, &inode->i_fsnotify_marks, FSNOTIFY_OBJ_TYPE_INODE, allow_dups)
-#endif
-FSNOTIFY_COMPAT_EOF
-          echo "=== Added fsnotify_add_inode_mark compat define ==="
+          # Preemptive compat: fsnotify_add_inode_mark may not exist in 4.19
+          bash ../../../patches/fsnotify_compat.sh
 
       - name: Apply manual hooks (JackA1ltman's normal_patches.sh + reboot.c)
         shell: bash
