@@ -30,11 +30,33 @@ jobs:
           sudo apt-get update -y
           sudo apt-get install -y repo git wget curl zip cpio bc bison build-essential flex libncurses-dev libssl-dev
 
+      - name: Cache kernel source
+        id: cache-kernel
+        uses: actions/cache@v4
+        with:
+          path: android-kernel
+          key: kernel-${{ env.KERNEL_BRANCH }}-v2
+          restore-keys: |
+            kernel-${{ env.KERNEL_BRANCH }}-
+
       - name: Sync kernel source
+        if: steps.cache-kernel.outputs.cache-hit != 'true'
         run: |
           mkdir android-kernel && cd android-kernel
           repo init -u https://android.googlesource.com/kernel/manifest -b ${{ env.KERNEL_BRANCH }}
           repo sync -c --no-tags -j$(nproc)
+
+      - name: Verify cached source
+        if: steps.cache-kernel.outputs.cache-hit == 'true'
+        run: |
+          echo "=== Cache hit! Skipping repo sync ==="
+          ls -la android-kernel/private/msm-google/Makefile 2>/dev/null || {
+            echo "Cache invalid, re-syncing..."
+            rm -rf android-kernel
+            mkdir android-kernel && cd android-kernel
+            repo init -u https://android.googlesource.com/kernel/manifest -b ${{ env.KERNEL_BRANCH }}
+            repo sync -c --no-tags -j$(nproc)
+          }
 
       - name: Modify SUBLEVEL
         run: |
@@ -151,13 +173,9 @@ jobs:
           grep -n 'ksu_handle_stat' fs/stat.c | head -3
 
       - name: Inject KSU + SUSFS config into build.config
+        shell: bash
         run: |
           cd android-kernel/private/msm-google
-          
-          # The build_redbull-gki.sh uses build.config.redbull.vintf which has
-          # POST_DEFCONFIG_CMDS="check_defconfig && update_config"
-          # The update_config() function runs scripts/config after defconfig.
-          # We need to inject our KSU+SUSFS config options INTO update_config().
           
           CONFIG_FILE="build.config.redbull.vintf"
           if [ ! -f "$CONFIG_FILE" ]; then
@@ -169,31 +187,42 @@ jobs:
           echo "=== Original update_config function ==="
           grep -A 10 "function update_config" "$CONFIG_FILE"
           
-          # Inject our config options into update_config() by appending to the scripts/config line
-          # The function uses: ${KERNEL_DIR}/scripts/config --file ${OUT_DIR}/.config \
-          # We add our -e flags after the existing ones, before the olddefconfig
-          sed -i '/function update_config/,/^}/ {
-            /olddefconfig)/i \
-          \\t${KERNEL_DIR}/scripts/config --file ${OUT_DIR}/.config \\\n\
-          \t-e KSU \\\n\
-          \t-e KSU_MANUAL_HOOK \\\n\
-          \t-e KSU_SUSFS \\\n\
-          \t-e KSU_SUSFS_SUS_PATH \\\n\
-          \t-e KSU_SUSFS_SUS_MOUNT \\\n\
-          \t-e KSU_SUSFS_SUS_KSTAT \\\n\
-          \t-e KSU_SUSFS_TRY_UMOUNT \\\n\
-          \t-e KSU_SUSFS_SPOOF_UNAME \\\n\
-          \t-e KSU_SUSFS_ENABLE_LOG \\\n\
-          \t-e KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS \\\n\
-          \t-e KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG \\\n\
-          \t-e KSU_SUSFS_OPEN_REDIRECT \\\n\
-          \t-e KSU_SUSFS_SUS_MAP
-          }' "$CONFIG_FILE"
+          # Use Python to reliably inject config options before olddefconfig
+          python3 << 'PYEOF'
+          with open('build.config.redbull.vintf', 'r') as f:
+              content = f.read()
+          
+          inject = """
+              ${KERNEL_DIR}/scripts/config --file ${OUT_DIR}/.config \\
+              -e KSU \\
+              -e KSU_MANUAL_HOOK \\
+              -e KSU_SUSFS \\
+              -e KSU_SUSFS_SUS_PATH \\
+              -e KSU_SUSFS_SUS_MOUNT \\
+              -e KSU_SUSFS_SUS_KSTAT \\
+              -e KSU_SUSFS_TRY_UMOUNT \\
+              -e KSU_SUSFS_SPOOF_UNAME \\
+              -e KSU_SUSFS_ENABLE_LOG \\
+              -e KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS \\
+              -e KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG \\
+              -e KSU_SUSFS_OPEN_REDIRECT \\
+              -e KSU_SUSFS_SUS_MAP
+          """
+          
+          # Insert before the olddefconfig line
+          content = content.replace(
+              '(cd ${OUT_DIR} && \\',
+              inject + '\n          (cd ${OUT_DIR} && \\'
+          )
+          
+          with open('build.config.redbull.vintf', 'w') as f:
+              f.write(content)
+          
+          print("=== Config injected successfully ===")
+          PYEOF
           
           echo "=== Modified update_config function ==="
           grep -A 30 "function update_config" "$CONFIG_FILE"
-          
-          echo "=== Config injection complete ==="
 
       - name: Patch KSU Kbuild to skip hook check during mrproper
         run: |
