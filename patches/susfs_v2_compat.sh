@@ -33,6 +33,16 @@ cat >> fs/susfs.c << 'SUSFS_C_EOF'
 /* v2.0.0 stub implementations for wshamroukh legacy-susfs */
 void susfs_set_hide_sus_mnts_for_all_procs(void __user *user_info) { }
 void susfs_set_i_state_on_external_dir(void __user *user_info) { }
+
+/* v1.5.x function name aliases (JackA1ltman patch references these) */
+void susfs_sus_ino_for_generic_fillattr(unsigned long ino, struct kstat *stat) {
+    susfs_generic_fillattr_spoofer(NULL, stat);
+}
+void susfs_sus_ino_for_show_map_vma(unsigned long ino, dev_t *out_dev, unsigned long *out_ino) {
+    susfs_show_map_vma_spoofer(NULL, out_dev, out_ino);
+}
+struct filename* susfs_get_redirected_path(unsigned long ino) { return NULL; }
+void susfs_sus_ino_for_filldir64(unsigned long ino) { }
 SUSFS_C_EOF
 
 # Add pragma to suppress fsnotify type mismatch in susfs.c (4.19 kernel API differs from v2.2.0)
