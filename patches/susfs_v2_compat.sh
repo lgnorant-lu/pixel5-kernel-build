@@ -26,6 +26,13 @@ SUSFS_ALIAS_EOF
 # All with void __user ** signatures matching wshamroukh's supercalls.c
 # NO stubs needed!
 
+# Add missing function declarations to susfs.h
+cat >> include/linux/susfs.h << 'SUSFS_H_EOF'
+
+/* Functions referenced by wshamroukh KSU but missing from MizProject v2.0.0 */
+void susfs_add_try_umount(void __user **user_info);
+SUSFS_H_EOF
+
 # Create minimal susfs_backports.h (MizProject susfs.c includes it but
 # we can't use the full version due to missing struct members)
 cat > include/linux/susfs_backports.h << 'BACKPORT_EOF'
@@ -47,6 +54,7 @@ cat >> fs/susfs.c << 'SUSFS_STUB_EOF'
 /* Stubs for functions normally in susfs_backports.h */
 bool susfs_is_avc_log_spoofing_enabled = false;
 void susfs_reorder_mnt_id(void) { }
+void susfs_add_try_umount(void __user **user_info) { }
 SUSFS_STUB_EOF
 
 echo "=== SUSFS v2.0.0 (MizProject 4.19) compatibility applied ==="
