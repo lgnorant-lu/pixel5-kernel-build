@@ -112,15 +112,20 @@ jobs:
           
           # Clone JackA1ltman for kernel-side SUSFS patch (50_add_susfs_in_kernel-4.19.patch)
           cd $KSU_ROOT
-          rm -rf susfs4ksu crdroid-kernel
+          rm -rf susfs4ksu manipvlator-kernel
           git clone https://github.com/JackA1ltman/susfs_4.19_lastest_sussu.git susfs4ksu || true
           
+          # Clone manipvlator for SUSFS v2.2.0 source files (supercall ABI, matches wshamroukh)
+          git clone --depth=1 https://github.com/manipvlator/los_kernel_xiaomi_sm6150 manipvlator-kernel || true
+          
           cd $KSU_ROOT/private/msm-google
-          # Use JackA1ltman's SUSFS source files as base
-          cp -v $KSU_ROOT/susfs4ksu/kernel_patches/include/linux/susfs.h include/linux/ 2>/dev/null || true
-          cp -v $KSU_ROOT/susfs4ksu/kernel_patches/include/linux/susfs_def.h include/linux/ 2>/dev/null || true
+          # Use v2.2.0 source files from manipvlator (supercall ABI matching wshamroukh KSU)
+          cp -v $KSU_ROOT/manipvlator-kernel/include/linux/susfs.h include/linux/ 2>/dev/null || true
+          cp -v $KSU_ROOT/manipvlator-kernel/include/linux/susfs_def.h include/linux/ 2>/dev/null || true
+          cp -v $KSU_ROOT/manipvlator-kernel/fs/susfs.c fs/ 2>/dev/null || true
+          
+          # Copy sus_su from JackA1ltman (not in manipvlator)
           cp -v $KSU_ROOT/susfs4ksu/kernel_patches/include/linux/sus_su.h include/linux/ 2>/dev/null || true
-          cp -v $KSU_ROOT/susfs4ksu/kernel_patches/fs/susfs.c fs/ 2>/dev/null || true
           cp -v $KSU_ROOT/susfs4ksu/kernel_patches/fs/sus_su.c fs/ 2>/dev/null || true
           
           # Add v2.0.0 compatibility shims for wshamroukh legacy-susfs
@@ -130,8 +135,10 @@ jobs:
           # Verify susfs files
           echo "=== Checking SUSFS files ==="
           ls -la include/linux/susfs.h include/linux/susfs_def.h fs/susfs.c 2>&1
-          grep "SUSFS_MAGIC" include/linux/susfs_def.h || echo "SUSFS_MAGIC not found!"
-          grep "susfs_set_current_proc_umounted" include/linux/susfs_def.h || echo "susfs_set_current_proc_umounted not found!"
+          echo "=== SUSFS_VERSION ==="
+          grep "SUSFS_VERSION" include/linux/susfs.h || echo "NOT in susfs.h!"
+          echo "=== SUSFS_MAGIC ==="
+          grep "SUSFS_MAGIC" include/linux/susfs_def.h || echo "NOT in susfs_def.h!"
           
           # Apply kernel-side SUSFS patch (modifies fs/namespace.c, fs/namei.c, etc.)
           cp $KSU_ROOT/susfs4ksu/kernel_patches/50_add_susfs_in_kernel-4.19.patch . 2>/dev/null || true

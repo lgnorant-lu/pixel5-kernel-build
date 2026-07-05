@@ -1,73 +1,32 @@
 #!/bin/bash
-# Add v2.0.0 compatibility shims for wshamroukh legacy-susfs branch
-# Only adds what's MISSING from JackA1ltman's v1.5.x files
+# Add compatibility aliases between v1.5.x patch constants and v2.2.0 susfs_def.h
+# JackA1ltman's 50_add_susfs_in_kernel-4.19.patch uses old constant names
+# manipvlator's v2.2.0 susfs_def.h uses new constant names
+# This script bridges the naming gap
 
-cat >> include/linux/susfs_def.h << 'SUSFS_DEF_EOF'
+cat >> include/linux/susfs_def.h << 'SUSFS_ALIAS_EOF'
 
-/* v2.0.0+ additions for wshamroukh legacy-susfs compatibility */
-#define SUSFS_MAGIC 0xFAFAFAFA
-#define CMD_SUSFS_ADD_SUS_PATH_LOOP 0x55553
-#define CMD_SUSFS_SET_ANDROID_DATA_ROOT_PATH 0x55551
-#define CMD_SUSFS_SET_SDCARD_ROOT_PATH 0x55552
-#define CMD_SUSFS_HIDE_SUS_MNTS_FOR_ALL_PROCS 0x55561
-#define CMD_SUSFS_HIDE_SUS_MNTS_FOR_NON_SU_PROCS 0x55561
-#define CMD_SUSFS_ENABLE_AVC_LOG_SPOOFING 0x60010
-#define TIF_PROC_UMOUNTED 33
+/* Compatibility aliases for JackA1ltman's 50_add_susfs_in_kernel-4.19.patch */
+#define INODE_STATE_SUS_PATH AS_FLAGS_SUS_PATH
+#define INODE_STATE_SUS_MOUNT AS_FLAGS_SUS_MOUNT
+#define INODE_STATE_SUS_KSTAT AS_FLAGS_SUS_KSTAT
+#define INODE_STATE_OPEN_REDIRECT AS_FLAGS_OPEN_REDIRECT
+#define INODE_STATE_SUS_MAP AS_FLAGS_SUS_MAP
+#define TASK_STRUCT_NON_ROOT_USER_APP_PROC TIF_PROC_UMOUNTED
+SUSFS_ALIAS_EOF
 
-#include <linux/cred.h>
-static inline bool susfs_is_current_proc_umounted(void) {
-    return test_ti_thread_flag(&current->thread_info, TIF_PROC_UMOUNTED);
-}
-static inline void susfs_set_current_proc_umounted(void) {
-    set_ti_thread_flag(&current->thread_info, TIF_PROC_UMOUNTED);
-}
-static inline bool susfs_is_current_proc_umounted_app(void) {
-    return (susfs_is_current_proc_umounted() && from_kuid(&init_user_ns, current_uid()) >= 10000);
-}
-SUSFS_DEF_EOF
-
-cat >> include/linux/susfs.h << 'SUSFS_H_EOF'
-
-/* v2.0.0+ function declarations - ONLY functions not in v1.5.x */
-void susfs_add_sus_path_loop(void __user *user_info);
-void susfs_set_hide_sus_mnts_for_all_procs(void __user *user_info);
-void susfs_set_i_state_on_external_dir(void __user *user_info);
-void susfs_enable_log(void __user *user_info);
-void susfs_set_avc_log_spoofing(void __user *user_info);
-void susfs_get_enabled_features(void __user *user_info);
-void susfs_show_variant(void __user *user_info);
-void susfs_show_version(void __user *user_info);
-void susfs_add_sus_map(void __user *user_info);
-SUSFS_H_EOF
-
-cat >> fs/susfs.c << 'SUSFS_C_EOF'
-
-/* v2.0.0+ stub implementations - ONLY functions not in v1.5.x */
-void susfs_add_sus_path_loop(void __user *user_info) { }
-void susfs_set_hide_sus_mnts_for_all_procs(void __user *user_info) { }
-void susfs_set_i_state_on_external_dir(void __user *user_info) { }
-void susfs_enable_log(void __user *user_info) { }
-void susfs_set_avc_log_spoofing(void __user *user_info) { }
-void susfs_get_enabled_features(void __user *user_info) { }
-void susfs_show_variant(void __user *user_info) { }
-void susfs_show_version(void __user *user_info) { }
-void susfs_add_sus_map(void __user *user_info) { }
-void susfs_try_umount_all(uid_t uid) { }
-void susfs_reorder_mnt_id(void) { }
-void susfs_run_sus_path_loop(uid_t uid) { }
-void ksu_try_umount(const char *mnt, bool check_mnt, int flags) { }
-SUSFS_C_EOF
-
-# Add CMD_SUSFS_ADD_SUS_MAP to susfs_def.h
-echo "#define CMD_SUSFS_ADD_SUS_MAP 0x60020" >> include/linux/susfs_def.h
-
-# Add -Wno-incompatible-pointer-types to KSU Kbuild to handle void** -> struct* casts
+# Add -Wno-incompatible-pointer-types to KSU Kbuild
 KSU_KBUILD="drivers/kernelsu/Kbuild"
 if [ -f "$KSU_KBUILD" ]; then
     REAL_KBUILD=$(readlink -f "$KSU_KBUILD")
-    sed -i 's/-Wno-declaration-after-statement/-Wno-declaration-after-statement -Wno-incompatible-pointer-types/g' "$REAL_KBUILD"
-    echo "=== Added -Wno-incompatible-pointer-types to Kbuild ==="
+    if ! grep -q "Wno-incompatible-pointer-types" "$REAL_KBUILD"; then
+        sed -i 's/-Wno-declaration-after-statement/-Wno-declaration-after-statement -Wno-incompatible-pointer-types/g' "$REAL_KBUILD"
+        echo "=== Added -Wno-incompatible-pointer-types to Kbuild ==="
+    fi
 fi
+
+echo "=== SUSFS v2.2.0 compatibility aliases applied ==="
+
 
 echo "=== SUSFS v2.0.0 compatibility patches applied ==="
 
