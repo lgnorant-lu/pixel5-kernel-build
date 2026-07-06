@@ -2,21 +2,18 @@
 # Port selinux_hide from FlopKernel to wshamroukh/upstream KSU-Next
 # Compatible with both wshamroukh legacy-susfs and upstream legacy branch structures
 
-# Detect kernel directory structure
-KSU_DIR="drivers/kernelsu"
-if [ -d "$KSU_DIR/kernel" ]; then
-  KERNEL_DIR="$KSU_DIR/kernel"
-elif [ -f "$KSU_DIR/ksu.c" ]; then
-  KERNEL_DIR="$KSU_DIR"
+# We are already in the kernel/ directory (called from workflow)
+# Detect file structure
+if [ -f "feature.h" ]; then
+  echo "=== Flat structure (wshamroukh) ==="
+elif [ -d "feature" ]; then
+  echo "=== Nested structure (upstream) ==="
 else
-  echo "ERROR: Cannot find KSU kernel directory"
-  echo "Available files in $KSU_DIR:"
-  ls -la "$KSU_DIR/" 2>/dev/null || echo "Directory not found"
+  echo "ERROR: Cannot find KSU kernel files"
+  echo "Current directory: $(pwd)"
+  echo "Files: $(ls -la | head -10)"
   exit 1
 fi
-
-cd "$KERNEL_DIR"
-echo "=== Using KSU kernel dir: $KERNEL_DIR ==="
 
 # 1. Add KSU_FEATURE_SELINUX_HIDE_STATUS to feature.h
 if ! grep -q "KSU_FEATURE_SELINUX_HIDE_STATUS" feature.h; then
