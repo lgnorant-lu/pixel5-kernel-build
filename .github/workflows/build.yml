@@ -1,6 +1,15 @@
 name: build_kernel_ksu_susfs
 on:
   workflow_dispatch:
+    inputs:
+      ksu_source:
+        description: 'KSU-Next source: wshamroukh (stable 32997) or upstream (latest)'
+        required: true
+        default: 'wshamroukh'
+        type: choice
+        options:
+          - wshamroukh
+          - upstream
   push:
     branches: [main]
 
@@ -75,11 +84,19 @@ jobs:
           grep SUBLEVEL Makefile
           grep LOCALVERSION Makefile
 
-      - name: Setup KernelSU-Next with SUSFS (wshamroukh legacy-susfs branch)
+      - name: Setup KernelSU-Next with SUSFS
         run: |
           cd android-kernel/private/msm-google
-          KSU_REPO="https://github.com/wshamroukh/KernelSU-Next-SUSFS-kernelv4.19"
-          KSU_BRANCH="legacy-susfs"
+          if [ "${{ inputs.ksu_source }}" = "upstream" ]; then
+            KSU_REPO="https://github.com/KernelSU-Next/KernelSU-Next"
+            KSU_BRANCH="legacy"
+            echo "=== Using upstream KSU-Next legacy branch (latest) ==="
+          else
+            KSU_REPO="https://github.com/wshamroukh/KernelSU-Next-SUSFS-kernelv4.19"
+            KSU_BRANCH="legacy-susfs"
+            echo "=== Using wshamroukh legacy-susfs branch (stable) ==="
+          fi
+          rm -rf KernelSU-Next
           git clone "$KSU_REPO" -b "$KSU_BRANCH" "KernelSU-Next" --depth=1
           ln -sf "$(realpath --relative-to=drivers "KernelSU-Next/kernel")" drivers/kernelsu
           grep -q "kernelsu" drivers/Makefile || printf '\nobj-$(CONFIG_KSU) += kernelsu/\n' >> drivers/Makefile
