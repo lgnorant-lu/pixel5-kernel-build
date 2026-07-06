@@ -1,12 +1,22 @@
 #!/bin/bash
-# Port selinux_hide from FlopKernel to wshamroukh legacy-susfs
-# Based on: FlopKernel-Series/flop_exynos2100_kernel commit fd9d912
-# Original: KernelSU-Next PR #1254 by 5ec1cff/pershoot
+# Port selinux_hide from FlopKernel to wshamroukh/upstream KSU-Next
+# Compatible with both wshamroukh legacy-susfs and upstream legacy branch structures
 
+# Detect kernel directory structure
 KSU_DIR="drivers/kernelsu"
-WSHAMROUKH_KERNEL="KernelSU-Next/kernel"
+if [ -d "$KSU_DIR/kernel" ]; then
+  KERNEL_DIR="$KSU_DIR/kernel"
+elif [ -f "$KSU_DIR/ksu.c" ]; then
+  KERNEL_DIR="$KSU_DIR"
+else
+  echo "ERROR: Cannot find KSU kernel directory"
+  echo "Available files in $KSU_DIR:"
+  ls -la "$KSU_DIR/" 2>/dev/null || echo "Directory not found"
+  exit 1
+fi
 
-cd $KSU_DIR/kernel
+cd "$KERNEL_DIR"
+echo "=== Using KSU kernel dir: $KERNEL_DIR ==="
 
 # 1. Add KSU_FEATURE_SELINUX_HIDE_STATUS to feature.h
 if ! grep -q "KSU_FEATURE_SELINUX_HIDE_STATUS" feature.h; then

@@ -209,13 +209,23 @@ jobs:
           PYEOF
           fi
 
-      - name: Port selinux_hide from FlopKernel (KSU-Next PR #1254)
+      - name: Port selinux_hide from FlopKernel (skip for upstream - already built-in)
+        if: inputs.ksu_source != 'upstream'
         shell: bash
         run: |
           cd android-kernel/private/msm-google/KernelSU-Next/kernel
           KSU_ROOT=/home/runner/work/pixel5-kernel-build/pixel5-kernel-build
           bash $KSU_ROOT/patches/port_selinux_hide.sh
           echo "=== selinux_hide port applied ==="
+
+      - name: Verify upstream selinux_hide (upstream only)
+        if: inputs.ksu_source == 'upstream'
+        run: |
+          cd android-kernel/private/msm-google/KernelSU-Next/kernel
+          echo "=== Checking upstream selinux_hide ==="
+          ls -la feature/selinux_hide.c feature/selinux_hide.h 2>&1
+          grep "selinux_hide" Kbuild
+          echo "=== upstream selinux_hide already built-in ==="
 
       - name: Patch KSU Kbuild to skip hook check during mrproper
         run: |
