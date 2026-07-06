@@ -66,10 +66,14 @@ jobs:
           find . -name "*.rej" -delete 2>/dev/null || true
           find . -name "*.orig" -delete 2>/dev/null || true
           sed -i 's/SUBLEVEL = .*/SUBLEVEL = ${{ env.SUBLEVEL }}/' Makefile
-          # Remove -dirty suffix from kernel version (clean /proc/version)
-          echo 'KBUILD_VERSION_SUFFIX = ""' >> Makefile
+          # Remove -dirty suffix: setlocalversion appends -dirty when git tree has uncommitted changes
+          # Our patches modify the source, so git sees it as dirty. Override by:
+          # 1. Setting LOCALVERSION to empty (removes custom suffix)
+          # 2. Creating .scmversion file (prevents git describe --dirty)
+          echo "" > .scmversion
+          echo 'LOCALVERSION=' >> Makefile
           grep SUBLEVEL Makefile
-          grep KBUILD_VERSION_SUFFIX Makefile
+          grep LOCALVERSION Makefile
 
       - name: Setup KernelSU-Next with SUSFS (wshamroukh legacy-susfs branch)
         run: |
