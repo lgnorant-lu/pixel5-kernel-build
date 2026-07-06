@@ -58,18 +58,18 @@ jobs:
             repo sync -c --no-tags -j$(nproc)
           }
 
-      - name: Modify SUBLEVEL
+      - name: Modify SUBLEVEL and remove -dirty suffix
         run: |
           cd android-kernel/private/msm-google
-          # Clean ALL previous build artifacts and patches from cache
           rm -rf out/ AnyKernel3/ KernelSU-Next/ drivers/kernelsu/
-          # Restore kernel source files to original state (undo previous patches)
           git checkout -- . 2>/dev/null || true
-          # Clean any patch reject files
           find . -name "*.rej" -delete 2>/dev/null || true
           find . -name "*.orig" -delete 2>/dev/null || true
           sed -i 's/SUBLEVEL = .*/SUBLEVEL = ${{ env.SUBLEVEL }}/' Makefile
+          # Remove -dirty suffix from kernel version (clean /proc/version)
+          echo 'KBUILD_VERSION_SUFFIX = ""' >> Makefile
           grep SUBLEVEL Makefile
+          grep KBUILD_VERSION_SUFFIX Makefile
 
       - name: Setup KernelSU-Next with SUSFS (wshamroukh legacy-susfs branch)
         run: |
