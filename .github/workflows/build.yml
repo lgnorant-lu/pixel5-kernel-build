@@ -196,7 +196,8 @@ jobs:
         shell: bash
         run: |
           cd android-kernel/private/msm-google/KernelSU-Next/kernel
-          bash ../../../../patches/port_selinux_hide.sh
+          KSU_ROOT=/home/runner/work/pixel5-kernel-build/pixel5-kernel-build
+          bash $KSU_ROOT/patches/port_selinux_hide.sh
           echo "=== selinux_hide port applied ==="
 
       - name: Patch KSU Kbuild to skip hook check during mrproper
