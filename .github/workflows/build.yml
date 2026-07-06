@@ -192,6 +192,13 @@ jobs:
           PYEOF
           fi
 
+      - name: Port selinux_hide from FlopKernel (KSU-Next PR #1254)
+        shell: bash
+        run: |
+          cd android-kernel/private/msm-google/KernelSU-Next/kernel
+          bash ../../../../patches/port_selinux_hide.sh
+          echo "=== selinux_hide port applied ==="
+
       - name: Patch KSU Kbuild to skip hook check during mrproper
         run: |
           cd android-kernel/private/msm-google
