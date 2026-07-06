@@ -92,8 +92,7 @@ static void initialize_fake_status(void)
 
 	struct selinux_kernel_status *status = page_address(real_page);
 	if (!status->enforcing) {
-		pr_warn("ksu_selinux_hide: skip not enforcing\n");
-		goto out;
+		pr_info("ksu_selinux_hide: not enforcing yet, creating fake status anyway\n");
 	}
 
 	struct page *new_page = alloc_page(GFP_KERNEL | __GFP_ZERO);
