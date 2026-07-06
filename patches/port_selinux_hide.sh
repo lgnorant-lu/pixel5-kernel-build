@@ -292,13 +292,12 @@ if ! grep -q "ksu_selinux_hide_init" ksu.c; then
 fi
 
 # 6. Add second_stage hook to ksud.c
-if ! grep -q "ksu_selinux_hide_handle_second_stage" ksud.c; then
+if ! grep -q "ksu_selinux_hide_handle_second_stage" ksud.c 2>/dev/null; then
+    # Add include at top
+    sed -i '1i #include "selinux_hide.h"' ksud.c 2>/dev/null || true
+    # Add call before apply_kernelsu_rules
     sed -i '/apply_kernelsu_rules();/i\\tksu_selinux_hide_handle_second_stage();' ksud.c 2>/dev/null || true
-    # If not found in ksud.c, try ksu.c
-    if ! grep -q "ksu_selinux_hide_handle_second_stage" ksu.c; then
-        sed -i '/apply_kernelsu_rules();/i\\tksu_selinux_hide_handle_second_stage();' ksu.c 2>/dev/null || true
-    fi
-    echo "=== Added second_stage hook ==="
+    echo "=== Added second_stage hook to ksud.c ==="
 fi
 
 echo "=== selinux_hide port complete ==="
