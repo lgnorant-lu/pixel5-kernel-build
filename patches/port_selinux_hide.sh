@@ -195,6 +195,96 @@ static void hook_selinux_status_open(void)
 	pr_info("ksu_selinux_hide: hooked sel_handle_status_ops->open\n");
 }
 
+/* === Hook /sys/fs/selinux/access write === */
+static ssize_t (*orig_access_write)(struct file *, const char __user *, size_t, loff_t *);
+static ssize_t (*orig_context_write)(struct file *, const char __user *, size_t, loff_t *);
+
+static ssize_t my_selinux_access_write(struct file *file, const char __user *buf, size_t size, loff_t *ppos)
+{
+	if (likely(current_uid().val >= 10000 && ksu_selinux_hide_is_enabled)) {
+		char kbuf[512];
+		size_t to_check = size < sizeof(kbuf) - 1 ? size : sizeof(kbuf) - 1;
+		if (copy_from_user(kbuf, buf, to_check))
+			goto call_orig;
+		kbuf[to_check] = '\0';
+		/* Block access queries that reference KSU contexts */
+		if (strstr(kbuf, "ksu") || strstr(kbuf, "su:") || strstr(kbuf, "ksu_file"))
+			return -EINVAL;
+	}
+call_orig:
+	return orig_access_write(file, buf, size, ppos);
+}
+
+static ssize_t my_selinux_context_write(struct file *file, const char __user *buf, size_t size, loff_t *ppos)
+{
+	if (likely(current_uid().val >= 10000 && ksu_selinux_hide_is_enabled)) {
+		char kbuf[512];
+		size_t to_check = size < sizeof(kbuf) - 1 ? size : sizeof(kbuf) - 1;
+		if (copy_from_user(kbuf, buf, to_check))
+			goto call_orig;
+		kbuf[to_check] = '\0';
+		/* Block context writes that reference KSU contexts */
+		if (strstr(kbuf, "ksu") || strstr(kbuf, "u:r:su:") || strstr(kbuf, "ksu_file"))
+			return -EINVAL;
+	}
+call_orig:
+	return orig_context_write(file, buf, size, ppos);
+}
+
+#define FORCE_VOLATILE_PTR(x) *(volatile typeof(x) *)&(x)
+
+static int patch_fops_write(struct file_operations *ops, void *new_write, void **orig_write)
+{
+	unsigned long addr = (unsigned long)&ops->write;
+	unsigned long base = addr & PAGE_MASK;
+	unsigned long offset = addr & ~PAGE_MASK;
+	struct page *page = phys_to_page(__pa(base));
+	if (!page)
+		return -EFAULT;
+	void *writable_addr = vmap(&page, 1, VM_MAP, PAGE_KERNEL);
+	if (!writable_addr)
+		return -ENOMEM;
+	void **target_slot = (void **)((unsigned long)writable_addr + offset);
+	if (!*orig_write)
+		*orig_write = *target_slot;
+	preempt_disable();
+	local_irq_disable();
+	FORCE_VOLATILE_PTR(*target_slot) = new_write;
+	local_irq_enable();
+	preempt_enable();
+	vunmap(writable_addr);
+	smp_mb();
+	return 0;
+}
+
+static void hook_selinux_access_context(void)
+{
+	struct file_operations *access_ops = NULL;
+	struct file_operations *context_ops = NULL;
+
+	/* Hook /sys/fs/selinux/access */
+	if (!resolve_fops("/sys/fs/selinux/access", &access_ops)) {
+		if (access_ops->write) {
+			patch_fops_write(access_ops, my_selinux_access_write, (void **)&orig_access_write);
+			pr_info("ksu_selinux_hide: hooked selinux/access write\n");
+		}
+	}
+
+	/* Hook /sys/fs/selinux/context */
+	if (!resolve_fops("/sys/fs/selinux/context", &context_ops)) {
+		if (context_ops->write) {
+			patch_fops_write(context_ops, my_selinux_context_write, (void **)&orig_context_write);
+			pr_info("ksu_selinux_hide: hooked selinux/context write\n");
+		}
+	}
+}
+
+/* === Hook /proc/self/attr/current via file_operations === */
+/* attr/current is handled by proc_pid_attr_write in fs/proc/base.c */
+/* We can't easily hook this via fops patching, so we use a different approach: */
+/* Hook the selinux_setprocattr function via LSM or direct function patching */
+/* For now, the access/context hooks should block most Kknd detections */
+
 void ksu_selinux_hide_handle_second_stage(void)
 {
 	initialize_fake_status();
@@ -219,6 +309,7 @@ try_again:
 	goto try_again;
 page_ok:
 	hook_selinux_status_open();
+	hook_selinux_access_context();
 	return 0;
 }
 
