@@ -218,14 +218,28 @@ jobs:
           bash $KSU_ROOT/patches/port_selinux_hide.sh
           echo "=== selinux_hide port applied ==="
 
-      - name: Verify upstream selinux_hide (upstream only)
+      - name: Verify upstream selinux_hide + add ksu_handle_devpts stub (upstream only)
         if: inputs.ksu_source == 'upstream'
+        shell: bash
         run: |
           cd android-kernel/private/msm-google/KernelSU-Next/kernel
           echo "=== Checking upstream selinux_hide ==="
           ls -la feature/selinux_hide.c feature/selinux_hide.h 2>&1
           grep "selinux_hide" Kbuild
           echo "=== upstream selinux_hide already built-in ==="
+
+          # upstream legacy removed ksu_handle_devpts (uses LSM hooks instead),
+          # but SUSFS normal_patches.sh injects a call to it in fs/devpts/inode.c.
+          # Add a stub function to prevent undefined symbol link error.
+          SUCOMPAT="feature/sucompat.c"
+          if ! grep -q "ksu_handle_devpts" "$SUCOMPAT"; then
+            echo "" >> "$SUCOMPAT"
+            echo "// stub for SUSFS manual hook compatibility (upstream uses LSM hooks)" >> "$SUCOMPAT"
+            echo "int ksu_handle_devpts(struct inode *inode) { return 0; }" >> "$SUCOMPAT"
+            echo "=== Added ksu_handle_devpts stub to sucompat.c ==="
+          else
+            echo "=== ksu_handle_devpts already exists in sucompat.c ==="
+          fi
 
       - name: Patch KSU Kbuild to skip hook check during mrproper
         run: |
