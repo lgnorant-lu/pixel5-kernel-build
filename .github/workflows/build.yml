@@ -291,6 +291,17 @@ jobs:
             echo "=== ksu_handle_devpts already exists in sucompat.c ==="
           fi
 
+      - name: Apply frida hide patches to kernel source (wshamroukh only)
+        if: inputs.ksu_source == 'wshamroukh'
+        shell: bash
+        run: |
+          cd android-kernel/private/msm-google
+          KSU_ROOT=/home/runner/work/pixel5-kernel-build/pixel5-kernel-build
+          bash $KSU_ROOT/patches/frida_hide_patch.sh .
+          echo "=== frida hide patches applied ==="
+          grep -c "bypass_show_map_vma" fs/proc/task_mmu.c || echo "task_mmu not patched"
+          grep -c "is_frida_process" fs/proc/base.c || echo "base.c not patched"
+
       - name: Patch KSU Kbuild to skip hook check during mrproper (skip for resukisu)
         if: inputs.ksu_source != 'resukisu'
         run: |
