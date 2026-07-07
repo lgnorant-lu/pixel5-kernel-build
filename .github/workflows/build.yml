@@ -187,33 +187,31 @@ jobs:
         run: |
           cd android-kernel/private/msm-google
           
-          # Method 1: Inject into defconfig (skip for resukisu — build system validates defconfig)
-          # For all sources, we rely on build.config's scripts/config injection (Method 2)
+          # Method 1: Inject into a non-validating config fragment (does not modify redbull_defconfig)
+          # redbull_defconfig is validated by savedefconfig during build, so we must NOT modify it.
+          # Instead, create a config fragment that gets sourced during build.
+          FRAGMENT="arch/arm64/configs/vendor/redbull_GKI.config"
           if [ "${{ inputs.ksu_source }}" != "resukisu" ]; then
-            DEFCONFIG="arch/arm64/configs/redbull_defconfig"
-            if [ -f "$DEFCONFIG" ]; then
-              echo "" >> "$DEFCONFIG"
-              echo "CONFIG_KSU=y" >> "$DEFCONFIG"
-              echo "CONFIG_KSU_MANUAL_HOOK=y" >> "$DEFCONFIG"
-              echo "CONFIG_KSU_SUSFS=y" >> "$DEFCONFIG"
-              echo "CONFIG_KSU_SUSFS_SUS_PATH=y" >> "$DEFCONFIG"
-              echo "CONFIG_KSU_SUSFS_SUS_MOUNT=y" >> "$DEFCONFIG"
-              echo "CONFIG_KSU_SUSFS_SUS_KSTAT=y" >> "$DEFCONFIG"
-              echo "CONFIG_KSU_SUSFS_TRY_UMOUNT=y" >> "$DEFCONFIG"
-              echo "CONFIG_KSU_SUSFS_SPOOF_UNAME=y" >> "$DEFCONFIG"
-              echo "CONFIG_KSU_SUSFS_ENABLE_LOG=y" >> "$DEFCONFIG"
-              echo "CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y" >> "$DEFCONFIG"
-              echo "CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y" >> "$DEFCONFIG"
-              echo "CONFIG_KSU_SUSFS_OPEN_REDIRECT=y" >> "$DEFCONFIG"
-              echo "CONFIG_KSU_SUSFS_SUS_MAP=y" >> "$DEFCONFIG"
-              echo "=== Config written to $DEFCONFIG ==="
-            else
-              echo "WARNING: $DEFCONFIG not found"
-              find arch/arm64/configs -name "*redbull*" | head -5
-            fi
+            # wshamroukh/upstream: manual hook + SUSFS
+            cat >> "$FRAGMENT" << 'FRAGEOF'
+
+          CONFIG_KSU=y
+          CONFIG_KSU_MANUAL_HOOK=y
+          CONFIG_KSU_SUSFS=y
+          CONFIG_KSU_SUSFS_SUS_PATH=y
+          CONFIG_KSU_SUSFS_SUS_MOUNT=y
+          CONFIG_KSU_SUSFS_SUS_KSTAT=y
+          CONFIG_KSU_SUSFS_TRY_UMOUNT=y
+          CONFIG_KSU_SUSFS_SPOOF_UNAME=y
+          CONFIG_KSU_SUSFS_ENABLE_LOG=y
+          CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y
+          CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y
+          CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
+          CONFIG_KSU_SUSFS_SUS_MAP=y
+          FRAGEOF
+            echo "=== Config fragment written ==="
           else
-            echo "=== ReSukiSU: skip defconfig modification (build system validates defconfig) ==="
-            echo "=== ReSukiSU: relying on build.config scripts/config injection only ==="
+            echo "=== ReSukiSU: skip fragment, rely on build.config scripts/config only ==="
           fi
           
           # Method 2: Also inject into build.config update_config (belt and suspenders)
