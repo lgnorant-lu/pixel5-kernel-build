@@ -187,40 +187,33 @@ jobs:
         run: |
           cd android-kernel/private/msm-google
           
-          DEFCONFIG="arch/arm64/configs/redbull_defconfig"
-          if [ ! -f "$DEFCONFIG" ]; then
-            DEFCONFIG="arch/arm64/configs/redbull-gki_defconfig"
-          fi
-          if [ -f "$DEFCONFIG" ]; then
-            echo "" >> "$DEFCONFIG"
-            echo "CONFIG_KSU=y" >> "$DEFCONFIG"
-            
-            if [ "${{ inputs.ksu_source }}" = "resukisu" ]; then
-              echo "=== ReSukiSU: using KSU_SUSFS inline hook (not manual hook) ==="
-              echo "CONFIG_KSU_SUSFS=y" >> "$DEFCONFIG"
-              echo "CONFIG_KSU_MANUAL_HOOK_AUTO_SETUID_HOOK=y" >> "$DEFCONFIG"
-              echo "CONFIG_KSU_MANUAL_HOOK_AUTO_INITRC_HOOK=y" >> "$DEFCONFIG"
-              echo "CONFIG_KSU_MANUAL_HOOK_AUTO_INPUT_HOOK=y" >> "$DEFCONFIG"
-            else
-              echo "=== wshamroukh/upstream: using manual hook + SUSFS ==="
+          # Method 1: Inject into defconfig (skip for resukisu — build system validates defconfig)
+          # For all sources, we rely on build.config's scripts/config injection (Method 2)
+          if [ "${{ inputs.ksu_source }}" != "resukisu" ]; then
+            DEFCONFIG="arch/arm64/configs/redbull_defconfig"
+            if [ -f "$DEFCONFIG" ]; then
+              echo "" >> "$DEFCONFIG"
+              echo "CONFIG_KSU=y" >> "$DEFCONFIG"
               echo "CONFIG_KSU_MANUAL_HOOK=y" >> "$DEFCONFIG"
               echo "CONFIG_KSU_SUSFS=y" >> "$DEFCONFIG"
+              echo "CONFIG_KSU_SUSFS_SUS_PATH=y" >> "$DEFCONFIG"
+              echo "CONFIG_KSU_SUSFS_SUS_MOUNT=y" >> "$DEFCONFIG"
+              echo "CONFIG_KSU_SUSFS_SUS_KSTAT=y" >> "$DEFCONFIG"
+              echo "CONFIG_KSU_SUSFS_TRY_UMOUNT=y" >> "$DEFCONFIG"
+              echo "CONFIG_KSU_SUSFS_SPOOF_UNAME=y" >> "$DEFCONFIG"
+              echo "CONFIG_KSU_SUSFS_ENABLE_LOG=y" >> "$DEFCONFIG"
+              echo "CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y" >> "$DEFCONFIG"
+              echo "CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y" >> "$DEFCONFIG"
+              echo "CONFIG_KSU_SUSFS_OPEN_REDIRECT=y" >> "$DEFCONFIG"
+              echo "CONFIG_KSU_SUSFS_SUS_MAP=y" >> "$DEFCONFIG"
+              echo "=== Config written to $DEFCONFIG ==="
+            else
+              echo "WARNING: $DEFCONFIG not found"
+              find arch/arm64/configs -name "*redbull*" | head -5
             fi
-            
-            echo "CONFIG_KSU_SUSFS_SUS_PATH=y" >> "$DEFCONFIG"
-            echo "CONFIG_KSU_SUSFS_SUS_MOUNT=y" >> "$DEFCONFIG"
-            echo "CONFIG_KSU_SUSFS_SUS_KSTAT=y" >> "$DEFCONFIG"
-            echo "CONFIG_KSU_SUSFS_TRY_UMOUNT=y" >> "$DEFCONFIG"
-            echo "CONFIG_KSU_SUSFS_SPOOF_UNAME=y" >> "$DEFCONFIG"
-            echo "CONFIG_KSU_SUSFS_ENABLE_LOG=y" >> "$DEFCONFIG"
-            echo "CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y" >> "$DEFCONFIG"
-            echo "CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y" >> "$DEFCONFIG"
-            echo "CONFIG_KSU_SUSFS_OPEN_REDIRECT=y" >> "$DEFCONFIG"
-            echo "CONFIG_KSU_SUSFS_SUS_MAP=y" >> "$DEFCONFIG"
-            echo "=== Config written to $DEFCONFIG ==="
           else
-            echo "WARNING: $DEFCONFIG not found"
-            find arch/arm64/configs -name "*redbull*" | head -5
+            echo "=== ReSukiSU: skip defconfig modification (build system validates defconfig) ==="
+            echo "=== ReSukiSU: relying on build.config scripts/config injection only ==="
           fi
           
           # Method 2: Also inject into build.config update_config (belt and suspenders)
