@@ -215,28 +215,16 @@ jobs:
           fi
           
           # Method 2: Also inject into build.config update_config (belt and suspenders)
-          # This is the original working approach — Python replaces olddefconfig) in update_config
           CONFIG_FILE="build.config.redbull.vintf"
           if [ -f "$CONFIG_FILE" ]; then
             if [ "${{ inputs.ksu_source }}" = "resukisu" ]; then
-              # ReSukiSU: KSU_SUSFS only (choice — cannot use KSU_MANUAL_HOOK)
               KSU_OPTS="-e KSU --disable KSU_MANUAL_HOOK -e KSU_SUSFS"
               echo "=== resukisu: SUSFS only, no MANUAL_HOOK ==="
             else
-              # wshamroukh/upstream: both MANUAL_HOOK and SUSFS (not a choice)
               KSU_OPTS="-e KSU -e KSU_MANUAL_HOOK -e KSU_SUSFS"
               echo "=== wshamroukh/upstream: MANUAL_HOOK + SUSFS ==="
             fi
-            # Use a Python script file to avoid YAML heredoc issues
-            echo "import sys" > /tmp/inject.py
-            echo "f=open(sys.argv[1],'r'); c=f.read(); f.close()" >> /tmp/inject.py
-            echo "if 'KSU_SUSFS_SUS_PATH' in c: print('exists'); sys.exit(0)" >> /tmp/inject.py
-            echo "opts=sys.argv[2]" >> /tmp/inject.py
-            echo "inject='    ${KERNEL_DIR}/scripts/config --file ${OUT_DIR}/.config \\\\\\n    '+opts+' \\\\\\n    -e KSU_SUSFS_SUS_PATH -e KSU_SUSFS_SUS_MOUNT -e KSU_SUSFS_SUS_KSTAT \\\\\\n    -e KSU_SUSFS_TRY_UMOUNT -e KSU_SUSFS_SPOOF_UNAME -e KSU_SUSFS_ENABLE_LOG \\\\\\n    -e KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS -e KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG \\\\\\n    -e KSU_SUSFS_OPEN_REDIRECT -e KSU_SUSFS_SUS_MAP\\n'" >> /tmp/inject.py
-            echo "c=c.replace('olddefconfig)\\n}', inject+'    olddefconfig)\\n}', 1)" >> /tmp/inject.py
-            echo "f=open(sys.argv[1],'w'); f.write(c); f.close()" >> /tmp/inject.py
-            echo "print('injected')" >> /tmp/inject.py
-            python3 /tmp/inject.py "$CONFIG_FILE" "$KSU_OPTS"
+            python3 ../../../patches/inject_config.py "$CONFIG_FILE" "$KSU_OPTS"
           fi
 
       - name: Port selinux_hide from FlopKernel (skip for upstream/resukisu - already built-in)
