@@ -187,7 +187,10 @@ jobs:
         run: |
           cd android-kernel/private/msm-google
           
-          DEFCONFIG="arch/arm64/configs/vendor/redbull_GKI.config"
+          DEFCONFIG="arch/arm64/configs/redbull_defconfig"
+          if [ ! -f "$DEFCONFIG" ]; then
+            DEFCONFIG="arch/arm64/configs/redbull-gki_defconfig"
+          fi
           if [ -f "$DEFCONFIG" ]; then
             echo "" >> "$DEFCONFIG"
             echo "CONFIG_KSU=y" >> "$DEFCONFIG"
@@ -195,7 +198,6 @@ jobs:
             if [ "${{ inputs.ksu_source }}" = "resukisu" ]; then
               echo "=== ReSukiSU: using KSU_SUSFS inline hook (not manual hook) ==="
               echo "CONFIG_KSU_SUSFS=y" >> "$DEFCONFIG"
-              # ReSukiSU has auto-hook options for manual hook mode
               echo "CONFIG_KSU_MANUAL_HOOK_AUTO_SETUID_HOOK=y" >> "$DEFCONFIG"
               echo "CONFIG_KSU_MANUAL_HOOK_AUTO_INITRC_HOOK=y" >> "$DEFCONFIG"
               echo "CONFIG_KSU_MANUAL_HOOK_AUTO_INPUT_HOOK=y" >> "$DEFCONFIG"
@@ -224,24 +226,46 @@ jobs:
           # Method 2: Also inject into build.config update_config (belt and suspenders)
           CONFIG_FILE="build.config.redbull.vintf"
           if [ -f "$CONFIG_FILE" ]; then
-            python3 << 'PYEOF'
-          with open('build.config.redbull.vintf', 'r') as f:
-              content = f.read()
-          inject = """
-              ${KERNEL_DIR}/scripts/config --file ${OUT_DIR}/.config \\
-              -e KSU -e KSU_MANUAL_HOOK -e KSU_SUSFS \\
-              -e KSU_SUSFS_SUS_PATH -e KSU_SUSFS_SUS_MOUNT -e KSU_SUSFS_SUS_KSTAT \\
-              -e KSU_SUSFS_TRY_UMOUNT -e KSU_SUSFS_SPOOF_UNAME -e KSU_SUSFS_ENABLE_LOG \\
-              -e KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS -e KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG \\
-              -e KSU_SUSFS_OPEN_REDIRECT -e KSU_SUSFS_SUS_MAP
-              (cd ${OUT_DIR} && \\
-              make O=${OUT_DIR} CLANG_TRIPLE=${CLANG_TRIPLE} CROSS_COMPILE=${CROSS_COMPILE} "${TOOL_ARGS[@]}" ${MAKE_ARGS} olddefconfig)
-          """
-          content = content.replace('olddefconfig)\n}', 'olddefconfig)\n' + inject + '\n}')
-          with open('build.config.redbull.vintf', 'w') as f:
-              f.write(content)
-          print("=== Config also injected into build.config ===")
-          PYEOF
+            if [ "${{ inputs.ksu_source }}" = "resukisu" ]; then
+              python3 << 'PYEOF'
+            with open('build.config.redbull.vintf', 'r') as f:
+                content = f.read()
+            inject = """
+                ${KERNEL_DIR}/scripts/config --file ${OUT_DIR}/.config \\
+                -e KSU --disable KSU_MANUAL_HOOK -e KSU_SUSFS \\
+                -e KSU_SUSFS_SUS_PATH -e KSU_SUSFS_SUS_MOUNT -e KSU_SUSFS_SUS_KSTAT \\
+                -e KSU_SUSFS_TRY_UMOUNT -e KSU_SUSFS_SPOOF_UNAME -e KSU_SUSFS_ENABLE_LOG \\
+                -e KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS -e KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG \\
+                -e KSU_SUSFS_OPEN_REDIRECT -e KSU_SUSFS_SUS_MAP \\
+                -e KSU_MANUAL_HOOK_AUTO_SETUID_HOOK -e KSU_MANUAL_HOOK_AUTO_INITRC_HOOK -e KSU_MANUAL_HOOK_AUTO_INPUT_HOOK
+                (cd ${OUT_DIR} && \\
+                make O=${OUT_DIR} CLANG_TRIPLE=${CLANG_TRIPLE} CROSS_COMPILE=${CROSS_COMPILE} "${TOOL_ARGS[@]}" ${MAKE_ARGS} olddefconfig)
+            """
+            content = content.replace('olddefconfig)\n}', 'olddefconfig)\n' + inject + '\n}')
+            with open('build.config.redbull.vintf', 'w') as f:
+                f.write(content)
+            print("=== Config also injected into build.config (resukisu: SUSFS only, no MANUAL_HOOK) ===")
+            PYEOF
+            else
+              python3 << 'PYEOF'
+            with open('build.config.redbull.vintf', 'r') as f:
+                content = f.read()
+            inject = """
+                ${KERNEL_DIR}/scripts/config --file ${OUT_DIR}/.config \\
+                -e KSU -e KSU_MANUAL_HOOK -e KSU_SUSFS \\
+                -e KSU_SUSFS_SUS_PATH -e KSU_SUSFS_SUS_MOUNT -e KSU_SUSFS_SUS_KSTAT \\
+                -e KSU_SUSFS_TRY_UMOUNT -e KSU_SUSFS_SPOOF_UNAME -e KSU_SUSFS_ENABLE_LOG \\
+                -e KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS -e KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG \\
+                -e KSU_SUSFS_OPEN_REDIRECT -e KSU_SUSFS_SUS_MAP
+                (cd ${OUT_DIR} && \\
+                make O=${OUT_DIR} CLANG_TRIPLE=${CLANG_TRIPLE} CROSS_COMPILE=${CROSS_COMPILE} "${TOOL_ARGS[@]}" ${MAKE_ARGS} olddefconfig)
+            """
+            content = content.replace('olddefconfig)\n}', 'olddefconfig)\n' + inject + '\n}')
+            with open('build.config.redbull.vintf', 'w') as f:
+                f.write(content)
+            print("=== Config also injected into build.config (wshamroukh/upstream: MANUAL_HOOK + SUSFS) ===")
+            PYEOF
+            fi
           fi
 
       - name: Port selinux_hide from FlopKernel (skip for upstream/resukisu - already built-in)
