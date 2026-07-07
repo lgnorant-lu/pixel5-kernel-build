@@ -220,15 +220,35 @@ jobs:
           CONFIG_FILE="build.config.redbull.vintf"
           if [ -f "$CONFIG_FILE" ]; then
             if [ "${{ inputs.ksu_source }}" = "resukisu" ]; then
-              KSU_CONFIG_INJECT="-e KSU --disable KSU_MANUAL_HOOK -e KSU_SUSFS -e KSU_SUSFS_SUS_PATH -e KSU_SUSFS_SUS_MOUNT -e KSU_SUSFS_SUS_KSTAT -e KSU_SUSFS_TRY_UMOUNT -e KSU_SUSFS_SPOOF_UNAME -e KSU_SUSFS_ENABLE_LOG -e KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS -e KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG -e KSU_SUSFS_OPEN_REDIRECT -e KSU_SUSFS_SUS_MAP -e KSU_MANUAL_HOOK_AUTO_SETUID_HOOK -e KSU_MANUAL_HOOK_AUTO_INITRC_HOOK -e KSU_MANUAL_HOOK_AUTO_INPUT_HOOK"
+              KSU_CFG="--disable KSU_MANUAL_HOOK -e KSU_SUSFS"
               echo "=== resukisu: SUSFS only, no MANUAL_HOOK ==="
             else
-              KSU_CONFIG_INJECT="-e KSU -e KSU_MANUAL_HOOK -e KSU_SUSFS -e KSU_SUSFS_SUS_PATH -e KSU_SUSFS_SUS_MOUNT -e KSU_SUSFS_SUS_KSTAT -e KSU_SUSFS_TRY_UMOUNT -e KSU_SUSFS_SPOOF_UNAME -e KSU_SUSFS_ENABLE_LOG -e KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS -e KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG -e KSU_SUSFS_OPEN_REDIRECT -e KSU_SUSFS_SUS_MAP"
+              KSU_CFG="-e KSU_MANUAL_HOOK -e KSU_SUSFS"
               echo "=== wshamroukh/upstream: MANUAL_HOOK + SUSFS ==="
             fi
-            # Inject into build.config's update_config function
-            sed -i "/olddefconfig)/i\\              \${KERNEL_DIR}/scripts/config --file \${OUT_DIR}/.config ${KSU_CONFIG_INJECT}" "$CONFIG_FILE"
-            echo "=== Config injected into build.config ==="
+            # Use Python to safely inject into update_config function
+            python3 -c "
+import sys
+with open('$CONFIG_FILE', 'r') as f:
+    content = f.read()
+inject = '''
+    \${KERNEL_DIR}/scripts/config --file \${OUT_DIR}/.config \\\\
+    -e KSU $KSU_CFG \\
+    -e KSU_SUSFS_SUS_PATH -e KSU_SUSFS_SUS_MOUNT -e KSU_SUSFS_SUS_KSTAT \\
+    -e KSU_SUSFS_TRY_UMOUNT -e KSU_SUSFS_SPOOF_UNAME -e KSU_SUSFS_ENABLE_LOG \\
+    -e KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS -e KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG \\
+    -e KSU_SUSFS_OPEN_REDIRECT -e KSU_SUSFS_SUS_MAP'''
+# Find the update_config function and inject before olddefconfig
+old = 'olddefconfig)'
+new = inject + '\n    ' + old
+if 'olddefconfig)' in content and 'KSU_SUSFS_SUS_PATH' not in content:
+    content = content.replace('olddefconfig)\n}', inject + '\n    olddefconfig)\n}', 1)
+    with open('$CONFIG_FILE', 'w') as f:
+        f.write(content)
+    print('=== Config injected into build.config ===')
+else:
+    print('=== build.config already has KSU config or no olddefconfig found ===')
+"
           fi
 
       - name: Port selinux_hide from FlopKernel (skip for upstream/resukisu - already built-in)
