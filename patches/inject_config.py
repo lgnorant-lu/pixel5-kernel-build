@@ -23,10 +23,11 @@ inject = (
     '    -e KSU_SUSFS_OPEN_REDIRECT -e KSU_SUSFS_SUS_MAP\n'
 )
 
-# Insert before olddefconfig) in update_config function
+# Insert AFTER olddefconfig) in update_config function
+# This runs scripts/config after make olddefconfig, then runs olddefconfig again
 target = 'olddefconfig)\n}'
 if target in content:
-    content = content.replace(target, inject + '    ' + target, 1)
+    content = content.replace(target, 'olddefconfig)\n' + inject + '}', 1)
     with open(config_file, 'w') as f:
         f.write(content)
     print('=== Config injected into build.config ===')
