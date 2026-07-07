@@ -3,13 +3,14 @@ on:
   workflow_dispatch:
     inputs:
       ksu_source:
-        description: 'KSU-Next source: wshamroukh (stable 32997) or upstream (latest)'
+        description: 'KSU source: wshamroukh (stable 32997) / upstream (latest) / resukisu (v4.1.0 SUSFS inline hook)'
         required: true
         default: 'wshamroukh'
         type: choice
         options:
           - wshamroukh
           - upstream
+          - resukisu
   push:
     branches: [main]
 
@@ -87,24 +88,33 @@ jobs:
       - name: Setup KernelSU-Next with SUSFS
         run: |
           cd android-kernel/private/msm-google
-          if [ "${{ inputs.ksu_source }}" = "upstream" ]; then
-            KSU_REPO="https://github.com/KernelSU-Next/KernelSU-Next"
-            KSU_BRANCH="legacy"
-            echo "=== Using upstream KSU-Next legacy branch (latest) ==="
-          else
-            KSU_REPO="https://github.com/wshamroukh/KernelSU-Next-SUSFS-kernelv4.19"
-            KSU_BRANCH="legacy-susfs"
-            echo "=== Using wshamroukh legacy-susfs branch (stable) ==="
-          fi
+          case "${{ inputs.ksu_source }}" in
+            upstream)
+              KSU_REPO="https://github.com/KernelSU-Next/KernelSU-Next"
+              KSU_BRANCH="legacy"
+              echo "=== Using upstream KSU-Next legacy branch (latest) ==="
+              ;;
+            resukisu)
+              KSU_REPO="https://github.com/ReSukiSU/ReSukiSU"
+              KSU_BRANCH="main"
+              echo "=== Using ReSukiSU main branch (v4.1.0, SUSFS inline hook) ==="
+              ;;
+            *)
+              KSU_REPO="https://github.com/wshamroukh/KernelSU-Next-SUSFS-kernelv4.19"
+              KSU_BRANCH="legacy-susfs"
+              echo "=== Using wshamroukh legacy-susfs branch (stable) ==="
+              ;;
+          esac
           rm -rf KernelSU-Next
           git clone "$KSU_REPO" -b "$KSU_BRANCH" "KernelSU-Next" --depth=1
           ln -sf "$(realpath --relative-to=drivers "KernelSU-Next/kernel")" drivers/kernelsu
           grep -q "kernelsu" drivers/Makefile || printf '\nobj-$(CONFIG_KSU) += kernelsu/\n' >> drivers/Makefile
           grep -q 'source "drivers/kernelsu/Kconfig"' drivers/Kconfig || sed -i '/endmenu/i\source "drivers/kernelsu/Kconfig"' drivers/Kconfig
-          echo "=== KernelSU-Next + SUSFS setup complete ==="
+          echo "=== KernelSU setup complete ==="
           grep -c "KSU_SUSFS" drivers/kernelsu/Kconfig || echo "SUSFS not found in Kconfig!"
 
-      - name: Disable kprobe in KernelSU-Next (force manual hook)
+      - name: Disable kprobe in KernelSU-Next (force manual hook) — skip for resukisu
+        if: inputs.ksu_source != 'resukisu'
         run: |
           cd android-kernel/private/msm-google/KernelSU-Next/kernel
           find . -type f \( -name '*.c' -o -name '*.h' \) -exec sed -i 's/#ifdef CONFIG_KPROBES/#if defined(CONFIG_KPROBES) \&\& 0/g' {} +
@@ -143,33 +153,58 @@ jobs:
           # Preemptive compat: fsnotify_add_inode_mark may not exist in 4.19
           bash ../../../patches/fsnotify_compat.sh
 
-      - name: Apply manual hooks (JackA1ltman's normal_patches.sh + reboot.c)
+      - name: Apply hooks (manual hooks for wshamroukh/upstream, inline hook for resukisu)
         shell: bash
         run: |
           cd android-kernel/private/msm-google
-          cp ../../../patches/normal_patches.sh .
-          chmod +x normal_patches.sh
-          bash normal_patches.sh
-          python3 ../../../patches/patch_reboot.py kernel/reboot.c
-          echo "=== Manual hooks applied ==="
-          grep -n 'ksu_handle' fs/exec.c | head -5
-          grep -n 'ksu_handle' fs/open.c | head -5
-          grep -n 'ksu_handle' fs/read_write.c | head -5
-          grep -n 'ksu_handle' fs/stat.c | head -5
-          grep -n 'ksu_handle_sys_reboot' kernel/reboot.c | head -3
+          if [ "${{ inputs.ksu_source }}" = "resukisu" ]; then
+            echo "=== Using SUSFS inline hook patches (ReSukiSU) ==="
+            cp ../../NonGKI_Build/Patches/susfs_inline_hook_patches.sh .
+            chmod +x susfs_inline_hook_patches.sh
+            bash susfs_inline_hook_patches.sh
+            echo "=== SUSFS inline hooks applied ==="
+            grep -n 'ksu_handle' fs/exec.c | head -5
+            grep -n 'ksu_handle' fs/open.c | head -5
+            grep -n 'ksu_handle' fs/read_write.c | head -5
+            grep -n 'ksu_handle' fs/stat.c | head -5
+            grep -n 'ksu_handle_sys_reboot' kernel/reboot.c | head -3
+          else
+            echo "=== Using manual hook patches (wshamroukh/upstream) ==="
+            cp ../../../patches/normal_patches.sh .
+            chmod +x normal_patches.sh
+            bash normal_patches.sh
+            python3 ../../../patches/patch_reboot.py kernel/reboot.c
+            echo "=== Manual hooks applied ==="
+            grep -n 'ksu_handle' fs/exec.c | head -5
+            grep -n 'ksu_handle' fs/open.c | head -5
+            grep -n 'ksu_handle' fs/read_write.c | head -5
+            grep -n 'ksu_handle' fs/stat.c | head -5
+            grep -n 'ksu_handle_sys_reboot' kernel/reboot.c | head -3
+          fi
 
       - name: Inject KSU + SUSFS config into defconfig and build.config
         shell: bash
         run: |
           cd android-kernel/private/msm-google
           
-          # Method 1: Write config directly to defconfig (JackA1ltman's approach)
           DEFCONFIG="arch/arm64/configs/vendor/redbull_GKI.config"
           if [ -f "$DEFCONFIG" ]; then
             echo "" >> "$DEFCONFIG"
             echo "CONFIG_KSU=y" >> "$DEFCONFIG"
-            echo "CONFIG_KSU_MANUAL_HOOK=y" >> "$DEFCONFIG"
-            echo "CONFIG_KSU_SUSFS=y" >> "$DEFCONFIG"
+            
+            if [ "${{ inputs.ksu_source }}" = "resukisu" ]; then
+              echo "=== ReSukiSU: using KSU_SUSFS inline hook (not manual hook) ==="
+              echo "CONFIG_KSU_SUSFS=y" >> "$DEFCONFIG"
+              # ReSukiSU has auto-hook options for manual hook mode
+              echo "CONFIG_KSU_MANUAL_HOOK_AUTO_SETUID_HOOK=y" >> "$DEFCONFIG"
+              echo "CONFIG_KSU_MANUAL_HOOK_AUTO_INITRC_HOOK=y" >> "$DEFCONFIG"
+              echo "CONFIG_KSU_MANUAL_HOOK_AUTO_INPUT_HOOK=y" >> "$DEFCONFIG"
+            else
+              echo "=== wshamroukh/upstream: using manual hook + SUSFS ==="
+              echo "CONFIG_KSU_MANUAL_HOOK=y" >> "$DEFCONFIG"
+              echo "CONFIG_KSU_SUSFS=y" >> "$DEFCONFIG"
+            fi
+            
             echo "CONFIG_KSU_SUSFS_SUS_PATH=y" >> "$DEFCONFIG"
             echo "CONFIG_KSU_SUSFS_SUS_MOUNT=y" >> "$DEFCONFIG"
             echo "CONFIG_KSU_SUSFS_SUS_KSTAT=y" >> "$DEFCONFIG"
@@ -209,8 +244,8 @@ jobs:
           PYEOF
           fi
 
-      - name: Port selinux_hide from FlopKernel (skip for upstream - already built-in)
-        if: inputs.ksu_source != 'upstream'
+      - name: Port selinux_hide from FlopKernel (skip for upstream/resukisu - already built-in)
+        if: inputs.ksu_source != 'upstream' && inputs.ksu_source != 'resukisu'
         shell: bash
         run: |
           cd android-kernel/private/msm-google/KernelSU-Next/kernel
@@ -218,19 +253,21 @@ jobs:
           bash $KSU_ROOT/patches/port_selinux_hide.sh
           echo "=== selinux_hide port applied ==="
 
-      - name: Verify upstream selinux_hide + add ksu_handle_devpts stub (upstream only)
+      - name: Verify built-in selinux_hide (upstream/resukisu only)
+        if: inputs.ksu_source == 'upstream' || inputs.ksu_source == 'resukisu'
+        shell: bash
+        run: |
+          cd android-kernel/private/msm-google/KernelSU-Next/kernel
+          echo "=== Checking built-in selinux_hide ==="
+          ls -la feature/selinux_hide.c feature/selinux_hide.h 2>&1
+          grep "selinux_hide" Kbuild
+          echo "=== selinux_hide already built-in ==="
+
+      - name: Add ksu_handle_devpts stub (upstream only)
         if: inputs.ksu_source == 'upstream'
         shell: bash
         run: |
           cd android-kernel/private/msm-google/KernelSU-Next/kernel
-          echo "=== Checking upstream selinux_hide ==="
-          ls -la feature/selinux_hide.c feature/selinux_hide.h 2>&1
-          grep "selinux_hide" Kbuild
-          echo "=== upstream selinux_hide already built-in ==="
-
-          # upstream legacy removed ksu_handle_devpts (uses LSM hooks instead),
-          # but SUSFS normal_patches.sh injects a call to it in fs/devpts/inode.c.
-          # Add a stub function to prevent undefined symbol link error.
           SUCOMPAT="feature/sucompat.c"
           if ! grep -q "ksu_handle_devpts" "$SUCOMPAT"; then
             echo "" >> "$SUCOMPAT"
@@ -241,7 +278,8 @@ jobs:
             echo "=== ksu_handle_devpts already exists in sucompat.c ==="
           fi
 
-      - name: Patch KSU Kbuild to skip hook check during mrproper
+      - name: Patch KSU Kbuild to skip hook check during mrproper (skip for resukisu)
+        if: inputs.ksu_source != 'resukisu'
         run: |
           cd android-kernel/private/msm-google
           KSU_KBUILD="drivers/kernelsu/Kbuild"
