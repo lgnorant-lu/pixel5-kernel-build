@@ -270,28 +270,28 @@ jobs:
           cd android-kernel/private/msm-google
           echo "=== Removing static modifiers from SELinux symbols ==="
           
-          # 1. selinuxfs.c: write_op array
-          sed -i 's/static ssize_t (\*write_op\[\])/ssize_t (*write_op[])/' security/selinux/selinuxfs.c
+          # 1. selinuxfs.c: write_op array (note: may have 'const' qualifier)
+          sed -i 's/static ssize_t (\*\(const \)\?write_op\[\])/ssize_t (*\1write_op[])/' security/selinux/selinuxfs.c
           # 2. selinuxfs.c: sel_handle_status_ops
           sed -i 's/static const struct file_operations sel_handle_status_ops/const struct file_operations sel_handle_status_ops/' security/selinux/selinuxfs.c
           # 3. selinuxfs.c: sel_mutex
-          sed -i 's/static DEFINE_MUTEX(sel_mutex);/DEFINE_MUTEX(sel_mutex);/' security/selinux/selinuxfs.c
+          sed -i 's/static DEFINE_MUTEX(sel_mutex);/DEFINE_MUTEX(sel_mutex);/' security/selinux/selinuxfs.c || true
           
           # 4. status.c: selinux_status_page
-          sed -i 's/static struct page \*selinux_status_page/struct page *selinux_status_page/' security/selinux/ss/status.c
+          sed -i 's/static struct page \*selinux_status_page/struct page *selinux_status_page/' security/selinux/ss/status.c || true
           # 5. status.c: selinux_status_lock
-          sed -i 's/static DEFINE_MUTEX(selinux_status_lock)/DEFINE_MUTEX(selinux_status_lock)/' security/selinux/ss/status.c
+          sed -i 's/static DEFINE_MUTEX(selinux_status_lock)/DEFINE_MUTEX(selinux_status_lock)/' security/selinux/ss/status.c || true
           
           # 6. services.c: policy_rwlock (may already be done by susfs_inline_hook_patches.sh)
-          sed -i 's/static DEFINE_RWLOCK(policy_rwlock);/DEFINE_RWLOCK(policy_rwlock);/' security/selinux/ss/services.c
+          sed -i 's/static DEFINE_RWLOCK(policy_rwlock);/DEFINE_RWLOCK(policy_rwlock);/' security/selinux/ss/services.c || true
           
           echo "=== Verify symbols are no longer static ==="
-          grep -n 'write_op\[\]' security/selinux/selinuxfs.c | head -3
-          grep -n 'sel_handle_status_ops' security/selinux/selinuxfs.c | head -3
-          grep -n 'sel_mutex' security/selinux/selinuxfs.c | head -3
-          grep -n 'selinux_status_page' security/selinux/ss/status.c | head -3
-          grep -n 'selinux_status_lock' security/selinux/ss/status.c | head -3
-          grep -n 'policy_rwlock' security/selinux/ss/services.c | head -3
+          grep -n 'write_op\[\]' security/selinux/selinuxfs.c | head -3 || true
+          grep -n 'sel_handle_status_ops' security/selinux/selinuxfs.c | head -3 || true
+          grep -n 'sel_mutex' security/selinux/selinuxfs.c | head -3 || true
+          grep -n 'selinux_status_page' security/selinux/ss/status.c | head -3 || true
+          grep -n 'selinux_status_lock' security/selinux/ss/status.c | head -3 || true
+          grep -n 'policy_rwlock' security/selinux/ss/services.c | head -3 || true
 
       - name: Add ksu_handle_devpts stub (upstream only)
         if: inputs.ksu_source == 'upstream'
